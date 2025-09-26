@@ -22,6 +22,7 @@ from frc_video_referee.model import (
     AddVARReviewCommand,
     ExitReviewCommand,
     LoadMatchCommand,
+    UpdateEventCommand,
     WarpToTimeCommand,
 )
 from frc_video_referee.web import WebsocketManager
@@ -208,6 +209,11 @@ class VARController:
             "exit_review",
             ExitReviewCommand,
             self._handle_exit_review_command,
+        )
+        self._websocket.add_command_handler(
+            "update_event",
+            UpdateEventCommand,
+            self._handle_update_event_command,
         )
 
         self._refresh_hyperdeck_clip_presence()
@@ -695,3 +701,35 @@ class VARController:
                 await self._save_and_unload_current_match()
                 self._set_state(ControllerState.Idle)
                 await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+
+    async def _handle_update_event_command(self, command: UpdateEventCommand):
+        """Handle a command to update an existing event in a match."""
+        async with self._lock:
+            # Find the match
+            match_entry = self._matches.get(command.match_id)
+            if not match_entry:
+                logger.warning(f"Match {command.match_id} not found")
+                return
+
+            # Find the event to update
+            event_to_update = None
+            for event in match_entry.var_data.events:
+                if event.event_id == command.event_id:
+                    event_to_update = event
+                    break
+
+            if not event_to_update:
+                logger.warning(f"Event {command.event_id} not found in match {command.match_id}")
+                return
+
+            # Apply the updates
+            for field, value in command.updates.items():
+                if hasattr(event_to_update, field):
+                    setattr(event_to_update, field, value)
+                    logger.info(f"Updated event {command.event_id} field {field} to {value}")
+                else:
+                    logger.warning(f"Event field {field} not found")
+
+            # Save the updated match
+            self._db.save_match(match_entry.var_data)
+            await self._websocket.notify(MATCH_LIST_EVENT)

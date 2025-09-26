@@ -1,3 +1,4 @@
+from typing import Any, Dict
 from pydantic import BaseModel
 
 
@@ -30,3 +31,14 @@ class ExitReviewCommand(BaseModel):
     """Command to exit review mode and go to the live view"""
 
     pass  # No fields
+
+
+class UpdateEventCommand(BaseModel):
+    """Command to update an existing event in a match"""
+
+    match_id: str
+    """Identifier for the match containing the event"""
+    event_id: str
+    """Unique identifier for the event to update"""
+    updates: Dict[str, Any]
+    """Dictionary of field updates to apply to the event"""
