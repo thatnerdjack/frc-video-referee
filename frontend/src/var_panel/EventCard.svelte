@@ -50,10 +50,10 @@
                 <div class="section-name">Team</div>
                 <div class="section-content team-lists">
                     <ol class="team-list blue">
-                        {#each blueTeams as team}
-                            <li class:selected={event?.team === team}>
+                        {#each blueTeams as team, index}
+                            <li class:selected={event?.team_idx === index && event?.alliance === 'blue'}>
                                 <button
-                                    onclick={editing ? () => onUpdateEvent?.({ team, alliance: "blue" }) : undefined}
+                                    onclick={editing ? () => onUpdateEvent?.({ team_idx: index, alliance: "blue" }) : undefined}
                                     style="all: unset; cursor: pointer;"
                                 >
                                     {team}
@@ -63,10 +63,10 @@
                     </ol>
 
                     <ol class="team-list red">
-                        {#each redTeams as team}
-                            <li class:selected={event?.team === team}>
+                        {#each redTeams as team, index}
+                            <li class:selected={event?.team_idx === index && event?.alliance === 'red'}>
                                 <button
-                                    onclick={editing ? () => onUpdateEvent?.({ team, alliance: "red" }) : undefined}
+                                    onclick={editing ? () => onUpdateEvent?.({ team_idx: index, alliance: "red" }) : undefined}
                                     style="all: unset; cursor: pointer;"
                                 >
                                     {team}

@@ -32,7 +32,7 @@
         {/if}
         {#if event.alliance}
             <div class="event-section alliance {event.alliance}">
-                {#if event.team_idx}
+                {#if event.team_idx !== undefined}
                     Team {match.var_data.teams[event.alliance][event.team_idx]}
                 {:else}
                     <span style="text-transform: capitalize"
