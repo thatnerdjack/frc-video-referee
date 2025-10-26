@@ -32,6 +32,12 @@ class HyperdeckStatus(BaseModel):
     """Indicates if the hyperdeck is currently playing a clip"""
     clip_time: float
     """Current time position in the clip, in seconds"""
+    remaining_record_time: int
+    """Remaining record time on the HyperDeck in seconds"""
+    total_space: int
+    """Total disk space on the HyperDeck in bytes"""
+    remaining_space: int
+    """Remaining disk space on the HyperDeck in bytes"""
 
 
 class WebsocketEvent(BaseModel):

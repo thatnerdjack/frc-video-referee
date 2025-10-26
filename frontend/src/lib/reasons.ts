@@ -5,8 +5,8 @@ export const REASONS: string[] = [
     "Overextension",
     "Field Damage",
     "Climbing",
-    "De-scoring",
-    "Placeholder 8",
+    "Net",
+    "Safe Zone",
     "Tipping",
     "Other"
 ];

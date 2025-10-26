@@ -15,6 +15,7 @@
     PLACEHOLDER_SCORE,
     PLACEHOLDER_SCORE_SUMMARY,
     type MatchEvent,
+    type TeamTable,
     type VARMatch,
   } from "./lib/model";
     import { REASONS } from "./lib/reasons";
@@ -60,9 +61,24 @@
     }
   });
 
-  let displayed_match_teams = $derived(
-    current_match?.var_data.teams ?? { red: [0, 0, 0], blue: [0, 0, 0] },
-  );
+  let displayed_match_teams = $derived.by(() => {
+    if (realtime_data) {
+      return {
+        red: [
+          server_state.realtime_match.red1,
+          server_state.realtime_match.red2,
+          server_state.realtime_match.red3,
+        ],
+        blue: [
+          server_state.realtime_match.blue1,
+          server_state.realtime_match.blue2,
+          server_state.realtime_match.blue3,
+        ],
+      } as TeamTable;
+    } else {
+      return current_match?.var_data.teams ?? { red: [0, 0, 0], blue: [0, 0, 0] };
+    }
+  });
 
   let { red_score, blue_score, red_score_summary, blue_score_summary } =
     $derived.by(() => {
@@ -194,7 +210,7 @@
       <div class="flex-spacer" style="flex: 1 1 0%"></div>
       <div class="event-info-container">
         {#if selectedEventIdx !== undefined}
-          <EventCard 
+          <EventCard
             reasons={REASONS}
             redTeams={[displayed_arena_match.red1, displayed_arena_match.red2, displayed_arena_match.red3]}
             blueTeams={[displayed_arena_match.blue1, displayed_arena_match.blue2, displayed_arena_match.blue3]}

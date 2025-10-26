@@ -324,6 +324,9 @@ export interface HyperdeckStatus {
     transport_mode: HyperdeckTransportMode;
     playing: boolean;
     clip_time: number;
+    remaining_record_time: number;
+    total_space: number;
+    remaining_space: number;
 }
 
 export enum WebsocketEventType {

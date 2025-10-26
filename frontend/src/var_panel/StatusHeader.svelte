@@ -44,6 +44,28 @@
                 }
         }
     });
+
+    function formatDuration(seconds: number): string {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+
+        const mm = mins.toString().padStart(2, '0');
+        const ss = secs.toString().padStart(2, '0');
+
+        if (hrs > 0) {
+            const hh = hrs.toString();
+            return `${hh}:${mm}:${ss}`;
+        } else {
+            return `${mm}:${ss}`;
+        }
+    }
+
+    function formatPercentage(numerator: number, denominator: number): string {
+        if (denominator === 0) return "0%";
+        const percent = (numerator / denominator) * 100;
+        return `${percent.toFixed(1)}%`;
+    }
 </script>
 
 {#snippet status(ok: boolean)}
@@ -68,6 +90,10 @@
             alt="hyperdeck status icon"
             src={recorder_icon}
         />
+        {formatDuration(hyperdeck_status.remaining_record_time)} Left ({formatPercentage(
+            hyperdeck_status.remaining_space,
+            hyperdeck_status.total_space
+        )})
     </div>
 </header>
 

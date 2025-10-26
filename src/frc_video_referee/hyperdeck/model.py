@@ -163,6 +163,33 @@ class TimelineClipList(BaseModel):
     clips: List[TimelineClip]
     """List of clips on the timeline"""
 
+class MediaWorkingSetEntry(BaseModel):
+    """Data about a media storage device on the HyperDeck"""
+
+    index: int
+    """Index of the media device"""
+    activeDisk: bool
+    """Whether this media is the active disk"""
+    volume: str
+    """Volume name of the media"""
+    deviceName: str
+    """Device name of the media"""
+    remainingRecordTime: int
+    """Remaining record time on the media in seconds"""
+    totalSpace: int
+    """Total space in bytes on the media"""
+    remainingSpace: int
+    """Remaining space in bytes on the media"""
+    clipCount: int
+    """Number of clips stored on the media"""
+
+class MediaWorkingSet(BaseModel):
+    """Information about the working set of media on the HyperDeck"""
+
+    size: int
+    """Number of media devices in the working set"""
+    workingset: List[MediaWorkingSetEntry | None]
+    """List of media devices in the working set"""
 
 ################################
 # HyperDeck WebSocket Messages #

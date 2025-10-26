@@ -14,6 +14,8 @@ from frc_video_referee.hyperdeck.model import (
     EventData,
     EventMessage,
     InboundWebsocketMessage,
+    MediaWorkingSet,
+    MediaWorkingSetEntry,
     PlaybackState,
     PlaybackType,
     RecordRequest,
@@ -50,6 +52,8 @@ class HyperdeckNotifier(enum.Enum):
     """Playback state of the HyperDeck has changed"""
     CLIP_LIST_UPDATED = enum.auto()
     """The list of playable clips on the HyperDeck has updated"""
+    DISK_SPACE_UPDATED = enum.auto()
+    """The disk space information on the HyperDeck has updated"""
 
 
 class HyperdeckClient:
@@ -66,6 +70,8 @@ class HyperdeckClient:
         """Current playback state"""
         self.transport_mode = TransportMode.InputPreview
         """Current transport mode"""
+        self.workingset: MediaWorkingSet = MediaWorkingSet(size=0, workingset=[])
+        """Current storage information"""
 
         self._subscribers: Dict[
             HyperdeckNotifier, List[Callable[[], Awaitable[None]]]
@@ -133,6 +139,7 @@ class HyperdeckClient:
                             "/transports/0/playback",
                             "/transports/0",
                             "/timelines/0",
+                            "/media/workingset",
                         ]
                     )
                 )
@@ -185,6 +192,9 @@ class HyperdeckClient:
                 new_timeline_keys = set(self._timeline.keys())
                 if old_timeline_keys != new_timeline_keys:
                     await self._notify(HyperdeckNotifier.CLIP_LIST_UPDATED)
+            case "/media/workingset":
+                self.workingset = MediaWorkingSet.model_validate(value)
+                await self._notify(HyperdeckNotifier.DISK_SPACE_UPDATED)
 
     async def _get_full_clip_list(self, client: httpx.AsyncClient) -> None:
         """Fetch the full list of clips from the HyperDeck."""
@@ -333,3 +343,19 @@ class HyperdeckClient:
         )  # Ensure we don't exceed the clip length
 
         return (timeline_entry.clipIn + current_frame) / clip.videoFormat.frameRate
+
+    def get_active_working_set(self) -> MediaWorkingSetEntry:
+        """Get the currently active working set entry, if any."""
+        for entry in self.workingset.workingset:
+            if entry and entry.activeDisk:
+                return entry
+        return MediaWorkingSetEntry(
+            index=0,
+            activeDisk=True,
+            volume="",
+            deviceName="",
+            remainingRecordTime=0,
+            totalSpace=1,
+            remainingSpace=0,
+            clipCount=0,
+        )

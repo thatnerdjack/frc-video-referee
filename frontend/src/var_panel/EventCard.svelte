@@ -10,13 +10,12 @@
         reasons: string[];
         redTeams: number[];
         blueTeams: number[];
-        selectedTeam?: number;
         eventIdx?: number;
         event?: MatchEvent;
         match_timing?: MatchTiming;
         onUpdateEvent?: (updates: Partial<MatchEvent>) => void;
     }
-    let { reasons, redTeams, blueTeams, selectedTeam, eventIdx, event, match_timing, onUpdateEvent }: Props = $props();
+    let { reasons, redTeams, blueTeams, eventIdx, event, match_timing, onUpdateEvent }: Props = $props();
 </script>
 
 <div class="event-card" class:editing>

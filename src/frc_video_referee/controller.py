@@ -61,6 +61,9 @@ class VARSettings(BaseModel):
     match_number_digits: int = 2
     """Minimum number of digits to use for match numbers in recording filenames"""
 
+    var_review_backdate_time: float = 0.0
+    """Amount of time to backdate VAR review button presses during a match"""
+
 
 class ControllerState(enum.Enum):
     Idle = enum.auto()
@@ -152,6 +155,10 @@ class VARController:
             (
                 HyperdeckNotifier.CLIP_LIST_UPDATED,
                 self._handle_hyperdeck_clip_list_update,
+            ),
+            (
+                HyperdeckNotifier.DISK_SPACE_UPDATED,
+                self._handle_hyperdeck_disk_space_update,
             ),
         ]
         for event, handler in hyperdeck_subscriptions:
@@ -564,10 +571,14 @@ class VARController:
                 self._current_match.var_data.clip_id
             )
         playing = self._hyperdeck.playback_state.type == PlaybackType.Play
+        active_working_set = self._hyperdeck.get_active_working_set()
         return HyperdeckStatus(
             transport_mode=self._hyperdeck.transport_mode,
             playing=playing,
             clip_time=clip_time,
+            remaining_record_time=active_working_set.remainingRecordTime,
+            total_space=active_working_set.totalSpace,
+            remaining_space=active_working_set.remainingSpace,
         ).model_dump()
 
     ###############################################
@@ -621,6 +632,10 @@ class VARController:
         self._refresh_hyperdeck_clip_presence()
         await self._websocket.notify(MATCH_LIST_EVENT)
 
+    async def _handle_hyperdeck_disk_space_update(self):
+        """Handle a notification that the HyperDeck disk space information has changed"""
+        await self._websocket.notify(HYPERDECK_STATUS_EVENT)
+
     #########################################
     # Handlers for commands from the VAR UI #
     #########################################
@@ -665,6 +680,9 @@ class VARController:
         """Internal method to add an event to the current match."""
         if self._current_match is None:
             return
+        if self._state == ControllerState.Recording:
+            # Backdate the event time a bit to account for human reaction times
+            time = max(0.0, time - self._settings.var_review_backdate_time)
         event = MatchEvent(
             event_id=self._create_event_id(),
             event_type=event_type,
@@ -719,14 +737,18 @@ class VARController:
                     break
 
             if not event_to_update:
-                logger.warning(f"Event {command.event_id} not found in match {command.match_id}")
+                logger.warning(
+                    f"Event {command.event_id} not found in match {command.match_id}"
+                )
                 return
 
             # Apply the updates
             for field, value in command.updates.items():
                 if hasattr(event_to_update, field):
                     setattr(event_to_update, field, value)
-                    logger.info(f"Updated event {command.event_id} field {field} to {value}")
+                    logger.info(
+                        f"Updated event {command.event_id} field {field} to {value}"
+                    )
                 else:
                     logger.warning(f"Event field {field} not found")
 
