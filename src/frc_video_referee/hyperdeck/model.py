@@ -163,6 +163,7 @@ class TimelineClipList(BaseModel):
     clips: List[TimelineClip]
     """List of clips on the timeline"""
 
+
 class MediaWorkingSetEntry(BaseModel):
     """Data about a media storage device on the HyperDeck"""
 
@@ -183,6 +184,7 @@ class MediaWorkingSetEntry(BaseModel):
     clipCount: int
     """Number of clips stored on the media"""
 
+
 class MediaWorkingSet(BaseModel):
     """Information about the working set of media on the HyperDeck"""
 
@@ -190,6 +192,7 @@ class MediaWorkingSet(BaseModel):
     """Number of media devices in the working set"""
     workingset: List[MediaWorkingSetEntry | None]
     """List of media devices in the working set"""
+
 
 ################################
 # HyperDeck WebSocket Messages #
