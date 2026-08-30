@@ -39,6 +39,9 @@ class HyperdeckClientSettings(BaseModel):
     """Interval in seconds between polling attempts when waiting for clip to finalize after recording stops"""
     clip_finalize_timeout: float = 5.0
     """Maximum time in seconds to wait for clip to finalize after recording stops"""
+    max_clip_lock_corrections: int = 5
+    """Maximum consecutive attempts to pull playback back into a locked clip before giving up.
+    Prevents an endless stream of corrections if the device refuses to honor them."""
 
 
 class HyperdeckNotifier(enum.Enum):
@@ -73,6 +76,13 @@ class HyperdeckClient:
         self.workingset: MediaWorkingSet = MediaWorkingSet(size=0, workingset=[])
         """Current storage information"""
 
+        self._locked_clip_id: int | None = None
+        """Clip which playback is currently locked to, if any"""
+        self._clip_lock_corrections = 0
+        """Consecutive corrections made for the current playback lock violation"""
+        self._applying_clip_lock = False
+        """Guard against overlapping lock corrections"""
+
         self._subscribers: Dict[
             HyperdeckNotifier, List[Callable[[], Awaitable[None]]]
         ] = {notifier: [] for notifier in HyperdeckNotifier}
@@ -101,6 +111,31 @@ class HyperdeckClient:
     def get_clip(self, clip_id: int) -> Clip | None:
         """Get a Clip object by its ID."""
         return self._clips.get(clip_id)
+
+    @property
+    def locked_clip_id(self) -> int | None:
+        """The clip which playback is currently locked to, if any"""
+        return self._locked_clip_id
+
+    async def lock_playback_to_clip(self, clip_id: int) -> None:
+        """Lock playback to a single clip.
+
+        While a lock is active, any movement outside of the clip is pulled back to the
+        nearest frame within it. This keeps operator input on the device itself, such as
+        the jog wheel, from wandering into a neighboring match's clip.
+        """
+        if self._locked_clip_id != clip_id:
+            logger.info(f"Locking playback to clip {clip_id}")
+            self._locked_clip_id = clip_id
+            self._clip_lock_corrections = 0
+        await self._enforce_clip_lock()
+
+    def unlock_playback(self) -> None:
+        """Release any active playback lock."""
+        if self._locked_clip_id is not None:
+            logger.info(f"Unlocking playback from clip {self._locked_clip_id}")
+        self._locked_clip_id = None
+        self._clip_lock_corrections = 0
 
     async def run(self) -> None:
         """Run the Hyperdeck client."""
@@ -179,10 +214,12 @@ class HyperdeckClient:
         match property:
             case "/transports/0/playback":
                 self.playback_state = PlaybackState.model_validate(value)
+                await self._enforce_clip_lock()
                 await self._notify(HyperdeckNotifier.PLAYBACK_STATE_UPDATED)
             case "/transports/0":
                 mode = TransportModeRequest.model_validate(value)
                 self.transport_mode = mode.mode
+                await self._enforce_clip_lock()
                 await self._notify(HyperdeckNotifier.TRANSPORT_MODE_UPDATED)
             case "/timelines/0":
                 # Update our view of the timeline structure
@@ -190,6 +227,8 @@ class HyperdeckClient:
                 old_timeline_keys = set(self._timeline.keys())
                 self._timeline = {clip.clipUniqueId: clip for clip in timeline.clips}
                 new_timeline_keys = set(self._timeline.keys())
+                # The bounds of the locked clip may have moved along with the timeline
+                await self._enforce_clip_lock()
                 if old_timeline_keys != new_timeline_keys:
                     await self._notify(HyperdeckNotifier.CLIP_LIST_UPDATED)
             case "/media/workingset":
@@ -212,6 +251,7 @@ class HyperdeckClient:
 
     async def start_recording(self, clip_name: str | None = None) -> None:
         """Start recording a new clip and return the ID in the HyperDeck"""
+        self.unlock_playback()
         request = RecordRequest(clipName=clip_name)
         response = await self._client.post(
             "/transports/0/record",
@@ -283,12 +323,95 @@ class HyperdeckClient:
 
         return timeline_clip.timelineIn + frame_in_clip - timeline_clip.clipIn
 
+    def _get_clip_timeline_bounds(self, clip_id: int) -> tuple[int, int] | None:
+        """Get the first and last valid timeline frame numbers for a clip on the timeline."""
+        timeline_clip = self._timeline.get(clip_id)
+        if timeline_clip is None or timeline_clip.frameCount <= 0:
+            return None
+        first_frame = timeline_clip.timelineIn
+        last_frame = timeline_clip.timelineIn + timeline_clip.frameCount - 1
+        return (first_frame, last_frame)
+
+    async def _enforce_clip_lock(self) -> None:
+        """Pull playback back into the locked clip if it has moved outside of it."""
+        clip_id = self._locked_clip_id
+        if clip_id is None or self._applying_clip_lock:
+            return
+        if not self._connected or self.transport_mode != TransportMode.Output:
+            # The lock only applies while a recorded clip is being played back
+            return
+
+        bounds = self._get_clip_timeline_bounds(clip_id)
+        if bounds is None:
+            # The clip is not on the timeline, so there is nothing to clamp against
+            return
+        first_frame, last_frame = bounds
+
+        state = self.playback_state
+        clamped_position = min(max(state.position, first_frame), last_frame)
+        position_ok = clamped_position == state.position
+        if position_ok and state.singleClip:
+            self._clip_lock_corrections = 0
+            return
+
+        if self._clip_lock_corrections >= self._settings.max_clip_lock_corrections:
+            # Our corrections aren't taking effect, so stop fighting the device
+            return
+
+        if position_ok:
+            # Playback is within the clip, but would run on into the next one
+            logger.info(f"Restoring single-clip playback for locked clip {clip_id}")
+            request = state.model_copy(update={"singleClip": True})
+        else:
+            # Stop at the edge of the clip rather than continuing past it
+            logger.info(
+                f"Playback position {state.position} is outside of locked clip {clip_id} "
+                f"(frames {first_frame}-{last_frame}), returning to frame {clamped_position}"
+            )
+            request = PlaybackState(
+                type=PlaybackType.Jog,
+                loop=state.loop,
+                singleClip=True,
+                speed=0.0,
+                position=clamped_position,
+            )
+
+        self._clip_lock_corrections += 1
+        if self._clip_lock_corrections >= self._settings.max_clip_lock_corrections:
+            logger.warning(
+                f"HyperDeck did not honor {self._clip_lock_corrections} playback lock "
+                f"corrections for clip {clip_id}, giving up until playback settles"
+            )
+
+        self._applying_clip_lock = True
+        try:
+            await self._set_playback_state(request)
+        except Exception as e:
+            logger.error(f"Failed to enforce playback lock on clip {clip_id}: {e}")
+        finally:
+            self._applying_clip_lock = False
+
+    async def _set_playback_state(self, state: PlaybackState) -> None:
+        """Send a new playback state to the HyperDeck."""
+        response = await self._client.put(
+            "/transports/0/playback", content=state.model_dump_json()
+        )
+        response.raise_for_status()
+
     async def warp_to_clip(self, clip_id: int, time_sec: float) -> None:
         """Warp to a specific clip by its ID and timestamp within the clip."""
         try:
             clip = self._clips[clip_id]
         except KeyError:
             raise ValueError(f"Clip ID '{clip_id}' not found in HyperDeck") from None
+
+        if self._locked_clip_id is not None and self._locked_clip_id != clip_id:
+            logger.warning(
+                f"Warping to clip {clip_id} while playback is locked to clip "
+                f"{self._locked_clip_id}, moving the lock to the new clip"
+            )
+            self._locked_clip_id = clip_id
+            self._clip_lock_corrections = 0
 
         time_frames = int(time_sec * clip.videoFormat.frameRate)
 
@@ -300,18 +423,13 @@ class HyperdeckClient:
             speed=0.0,
             position=timeline_position,
         )
-        response = await self._client.put(
-            "/transports/0/playback", content=request.model_dump_json()
-        )
-        response.raise_for_status()
+        await self._set_playback_state(request)
         # Do it again after the clip loads to actually set the time?
-        response = await self._client.put(
-            "/transports/0/playback", content=request.model_dump_json()
-        )
-        response.raise_for_status()
+        await self._set_playback_state(request)
 
     async def show_live_view(self) -> None:
         """Show the live view from the HyperDeck."""
+        self.unlock_playback()
         request = TransportModeRequest(mode=TransportMode.InputPreview)
         response = await self._client.put(
             "/transports/0", content=request.model_dump_json()

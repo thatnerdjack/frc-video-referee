@@ -23,7 +23,7 @@ This document describes the expected workflows for using the VAR system
 7. Cheesy Arena reports end of the match
 8. VAR server automatically adds a review event for end-of-match scoring 3 seconds after the report from Cheesy Arena
 9. VAR server stops the HyperDeck recording 5 seconds after the end-of-match report from Cheesy Arena
-10. VAR server moves to post-match review mode and warps to the end-of-AUTO event
+10. VAR server moves to post-match review mode, locks HyperDeck playback to the match clip, and warps to the end-of-AUTO event
 11. VAR operator cross-checks AUTO scores and advances to end-of-match using the VAR tablet
 12. VAR operator cross-checks end-of-match scores using the VAR tablet
 13. VAR operator examines any other review events generated during the match using the VAR tablet
@@ -37,9 +37,10 @@ This document describes the expected workflows for using the VAR system
 
 1. VAR operator selects a prior match from the match list on the VAR tablet
 2. VAR server directs the HyperDeck to go to Output mode and load the appropriate match clip
-3. VAR server downloads detailed scoring data for the match from Cheesy Arena and displays it on the tablet
-4. VAR operator selects review events from a list on the tablet, or selects a moment on the tablet's match timeline
-5. VAR server warps the HyperDeck to the appropriate position in the clip
+3. VAR server locks playback to that clip, so the HyperDeck's own controls (such as the jog wheel) cannot scroll into a neighboring match
+4. VAR server downloads detailed scoring data for the match from Cheesy Arena and displays it on the tablet
+5. VAR operator selects review events from a list on the tablet, or selects a moment on the tablet's match timeline
+6. VAR server warps the HyperDeck to the appropriate position in the clip
 
 # In-match review request by VAR operator
 

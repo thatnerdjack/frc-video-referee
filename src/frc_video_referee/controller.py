@@ -64,6 +64,10 @@ class VARSettings(BaseModel):
     var_review_backdate_time: float = 0.0
     """Amount of time to backdate VAR review button presses during a match"""
 
+    lock_playback_to_selected_match: bool = True
+    """Lock HyperDeck playback to the selected match's clip, preventing controls on the
+    device itself such as the jog wheel from scrolling into a neighboring match"""
+
 
 class ControllerState(enum.Enum):
     Idle = enum.auto()
@@ -331,7 +335,26 @@ class VARController:
                     auto_end_event = event
                     break
             time_to_display = auto_end_event.time if auto_end_event else 0.0
+            await self._lock_playback_to_current_match()
             await self._hyperdeck.warp_to_clip(clip_id, time_to_display)
+
+    async def _lock_playback_to_current_match(self):
+        """Lock HyperDeck playback to the clip of the currently selected match.
+
+        This keeps the HyperDeck's own controls, such as the jog wheel, from scrolling
+        out of the match being reviewed. Playback is left unlocked if the selected match
+        has no clip available to lock onto.
+        """
+        if not self._settings.lock_playback_to_selected_match:
+            return
+
+        clip_id = self._current_match.var_data.clip_id if self._current_match else None
+        if clip_id is not None:
+            # The lock stays dormant until the clip shows up on the HyperDeck's timeline,
+            # so it is safe to apply before the clip finishes appearing there
+            await self._hyperdeck.lock_playback_to_clip(clip_id)
+        else:
+            self._hyperdeck.unlock_playback()
 
     def _refresh_hyperdeck_clip_presence(self):
         for var_match in self._matches.values():
@@ -654,6 +677,7 @@ class VARController:
                 self._current_match = self._matches[command.match_id]
                 self._state = ControllerState.ReviewingHistoricalMatch
                 clip_id = self._current_match.var_data.clip_id
+                await self._lock_playback_to_current_match()
                 if clip_id and self._hyperdeck.has_playable_clip(clip_id):
                     await self._hyperdeck.warp_to_clip(clip_id, 0.0)
                 await self._websocket.notify(CONTROLLER_STATUS_EVENT)
