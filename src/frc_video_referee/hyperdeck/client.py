@@ -102,6 +102,27 @@ class HyperdeckClient:
         """Get a Clip object by its ID."""
         return self._clips.get(clip_id)
 
+    @property
+    def all_clips(self) -> Dict[int, Clip]:
+        """All clips currently stored on the HyperDeck, keyed by clip ID."""
+        return dict(self._clips)
+
+    async def refresh_clip_list(self) -> None:
+        """Re-read the full clip list from the HyperDeck."""
+        await self._get_full_clip_list(self._client)
+
+    async def refresh_working_set(self) -> None:
+        """Re-read the media working set, updating the reported disk space.
+
+        The deck pushes this over the websocket, but it can lag behind file operations
+        performed out-of-band over FTP, so storage management re-reads it directly after
+        reclaiming space.
+        """
+        response = await self._client.get("/media/workingset")
+        response.raise_for_status()
+        self.workingset = MediaWorkingSet.model_validate_json(response.text)
+        await self._notify(HyperdeckNotifier.DISK_SPACE_UPDATED)
+
     async def run(self) -> None:
         """Run the Hyperdeck client."""
         async with httpx.AsyncClient(

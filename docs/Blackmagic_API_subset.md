@@ -126,6 +126,29 @@ Response: 200 with JSON body:
 * clips [array]
   * Each member of the array is an object with the same contents as the "clip" object from GET /transports/0/clip
 
+# Media and storage
+
+## Media working set
+
+### GET /control/api/v1/media/workingset
+
+Description: Get information about the storage media available to the device
+
+No Parameters
+
+Response: 200 with JSON body matching the `/media/workingset` property described below
+
+## Deleting clips
+
+The control API has **no endpoint for deleting a clip**. The only remote file management
+mechanism Blackmagic documents is the FTP server the deck exposes, so the VAR server's
+automatic storage management (see `src/frc_video_referee/storage.py`) deletes and offloads
+clips over FTP rather than through this API.
+
+The FTP root contains one directory per media volume, named to match the `volume` field of
+the active working set entry. A clip's `filePath` is relative to that directory, so a clip
+on volume `sdcard` with a `filePath` of `Q01.mp4` lives at `/sdcard/Q01.mp4` over FTP.
+
 # Websocket API
 
 A websocket API is exposed for receiving real-time updates to state from the device. The client sends a request subscribing to a number of events,
@@ -264,6 +287,23 @@ JSON body:
     * inTimecode [string]: The timecode of the first frame of the clip
     * timelineIn [integer]: The position in the timeline for the first frame of this clip
     * timelineInTimecode [string]: The timecode in the timeline for the first frame of this clip
+
+### /media/workingset
+
+Description: Information about the storage media available to the device
+
+JSON body:
+* size [integer]: Number of media devices in the working set
+* workingset [array]
+  * Each element is either null, or an object with the following body:
+    * index [integer]: Index of the media device
+    * activeDisk [boolean]: Whether this media is the one currently being recorded to
+    * volume [string]: Volume name of the media. Matches the FTP directory holding its clips
+    * deviceName [string]: Device name of the media
+    * remainingRecordTime [integer]: Remaining record time on the media in seconds
+    * totalSpace [integer]: Total space on the media in bytes
+    * remainingSpace [integer]: Remaining space on the media in bytes
+    * clipCount [integer]: Number of clips stored on the media
 
 ### /transports/0
 

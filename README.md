@@ -23,6 +23,10 @@ run a mock version of the hyperdeck API. To run it, use the following command:
 uv run tools/mock_hyperdeck.py
 ```
 
+The mock also runs an FTP server (on port 2121 by default) holding simulated clip files, so that
+automatic storage management can be exercised without hardware. Pass `--disk-size` to shrink the
+simulated media, and `POST /mock/storage` to consume space on demand.
+
 ## Workspace setup
 
 After cloning this repository use the following command to download dependencies, build the frontend assets, and build the VAR server application.
@@ -62,7 +66,37 @@ folder = "myevent.db" # Create a new DB folder for each event
 
 [ui]
 swap-red-blue = true # Swap red vs blue in the UI to match the VAR field view
+
+[storage]
+# Automatically reclaim space on the HyperDeck as it fills up over the event.
+# Cleanup only ever runs during downtime between matches, never while a match is
+# being recorded or reviewed, and never once the field is ready to start.
+low_space_threshold = 2700 # Start cleaning below 45 minutes of remaining record time
+target_record_time = 5400  # Keep cleaning until 90 minutes of headroom is restored
+min_matches_retained = 8   # Never delete clips for the 8 most recent matches
+# offload_path = "D:/var_archive" # Copy clips here before deleting them. Omit to just delete
+# dry_run = true # Log what would be reclaimed without touching any files
 ```
+
+### Storage management
+
+Over a long event the HyperDeck's media fills with match recordings, and a full disk means
+no recording at all. The VAR server watches the remaining record time the deck reports and,
+once it drops below `low_space_threshold`, queues clips for removal.
+
+The queue is only drained during downtime: the VAR server idle, the arena in pre-match, the
+field not yet ready to start, and all of that having held for `quiet_period` seconds. If a
+match becomes imminent, any transfer in progress is abandoned immediately and retried later.
+
+Clips are removed over the deck's FTP server, since the HyperDeck control API has no way to
+delete a clip. Orphan clips — files on the deck belonging to no recorded match — are always
+reclaimed first, then the oldest matches whose scores the scorekeeper has already committed.
+The most recent `min_matches_retained` matches, the match being recorded, and any match
+loaded for review are never touched.
+
+Set `offload_path` to archive clips to local storage before they are deleted; a clip is only
+removed from the deck once its copy is verified complete. Running once with `dry_run = true`
+is a good way to confirm the selection looks right before an event.
 
 ## Rebuilding after making local changes
 

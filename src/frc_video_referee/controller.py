@@ -3,7 +3,7 @@ import enum
 import logging
 import re
 from datetime import datetime
-from typing import List
+from typing import List, Set
 import uuid
 
 from pydantic import BaseModel
@@ -18,6 +18,7 @@ from frc_video_referee.db.model import (
 from frc_video_referee.hyperdeck.client import HyperdeckClient, HyperdeckNotifier
 from frc_video_referee.cheesy_arena.client import ArenaNotifier, CheesyArenaClient
 from frc_video_referee.hyperdeck.model import PlaybackType
+from frc_video_referee.storage import StorageActivity
 from frc_video_referee.model import (
     AddVARReviewCommand,
     ExitReviewCommand,
@@ -332,6 +333,44 @@ class VARController:
                     break
             time_to_display = auto_end_event.time if auto_end_event else 0.0
             await self._hyperdeck.warp_to_clip(clip_id, time_to_display)
+
+    def get_storage_activity(self) -> StorageActivity:
+        """Report what the controller is doing so storage work can be gated on it.
+
+        Consumed by the StorageManager, which must not touch files on the deck while a
+        match is being recorded or reviewed.
+        """
+        protected_match_ids: Set[str] = set()
+        if self._current_match is not None:
+            protected_match_ids.add(self._current_match.var_data.var_id)
+        return StorageActivity(
+            idle=self._state == ControllerState.Idle,
+            protected_match_ids=protected_match_ids,
+        )
+
+    async def record_clip_reclaimed(
+        self, var_id: str, archive_path: str | None
+    ) -> None:
+        """Record that a match's clip has been removed from the HyperDeck.
+
+        The controller is the only writer of match records, so storage management routes
+        this through here rather than writing to the database itself.
+        """
+        async with self._lock:
+            match_entry = self._matches.get(var_id)
+            if match_entry is None:
+                logger.warning(f"Reclaimed clip for unknown match {var_id}")
+                return
+
+            match_entry.var_data.clip_deleted = True
+            match_entry.var_data.archive_path = archive_path
+            match_entry.clip_available = False
+            self._db.save_match(match_entry.var_data)
+            logger.info(
+                f"Match {var_id} clip reclaimed from the HyperDeck"
+                + (f", archived to {archive_path}" if archive_path else "")
+            )
+            await self._websocket.notify(MATCH_LIST_EVENT)
 
     def _refresh_hyperdeck_clip_presence(self):
         for var_match in self._matches.values():

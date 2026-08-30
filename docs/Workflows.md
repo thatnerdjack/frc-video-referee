@@ -41,6 +41,16 @@ This document describes the expected workflows for using the VAR system
 4. VAR operator selects review events from a list on the tablet, or selects a moment on the tablet's match timeline
 5. VAR server warps the HyperDeck to the appropriate position in the clip
 
+# Reclaiming HyperDeck storage
+
+1. HyperDeck reports its remaining record time in its MediaWorkingSet notifications
+2. Once remaining record time drops below the configured threshold, VAR server builds a queue of clips to reclaim
+3. Orphan clips (present on the deck but belonging to no recorded match) are queued first, then the oldest matches whose scores have been committed
+4. VAR server waits for downtime: no recording or review in progress, arena in pre-match, field not ready to start, and no change to any of that for a settling period
+5. During downtime the VAR server works through the queue one clip at a time, optionally copying each clip to a configured archive location before deleting it over FTP
+6. If the arena becomes ready to start a match, any transfer in progress is abandoned and the queue is left for the next downtime window
+7. Cleanup stops once the remaining record time reaches the configured target
+
 # In-match review request by VAR operator
 
 1. VAR operator presses a button on the VAR tablet to add a review event. VAR tablet records the moment the button was pressed

@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Dict, List, Literal
 from pydantic import BaseModel, TypeAdapter
 
@@ -38,6 +39,32 @@ class HyperdeckStatus(BaseModel):
     """Total disk space on the HyperDeck in bytes"""
     remaining_space: int
     """Remaining disk space on the HyperDeck in bytes"""
+
+
+class StorageState(Enum):
+    """Overall state of automatic HyperDeck storage management"""
+
+    DISABLED = "disabled"
+    """Automatic storage management is turned off"""
+    OK = "ok"
+    """Plenty of space remaining, nothing to do"""
+    PENDING = "pending"
+    """Space is low and cleanup is queued, waiting for a downtime window"""
+    CLEANING = "cleaning"
+    """Reclaiming space right now"""
+    ERROR = "error"
+    """The most recent attempt to reclaim space failed"""
+
+
+class StorageStatus(BaseModel):
+    state: StorageState
+    """Overall state of automatic storage management"""
+    pending_items: int
+    """Number of clips queued for reclamation"""
+    offload_enabled: bool
+    """Whether clips are archived to a local folder before being deleted"""
+    last_error: str | None
+    """Description of the most recent storage management failure, if any"""
 
 
 class WebsocketEvent(BaseModel):

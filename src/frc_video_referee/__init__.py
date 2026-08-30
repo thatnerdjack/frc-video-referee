@@ -12,6 +12,7 @@ from .db import DB, DBSettings
 from .controller import VARController, VARSettings
 from .cheesy_arena.client import CheesyArenaClient, ArenaClientSettings
 from .hyperdeck.client import HyperdeckClient, HyperdeckClientSettings
+from .storage import StorageManager, StorageSettings
 from .web import (
     ServerSettings,
     WEBSOCKET_MANAGER,
@@ -63,6 +64,9 @@ class Settings(BaseSettings, use_attribute_docstrings=True):
     var: VARSettings = VARSettings()
     """VAR controller settings"""
 
+    storage: StorageSettings = StorageSettings()
+    """Automatic HyperDeck storage management settings"""
+
     ui: UISettings = UISettings()
     """User-facing panel settings"""
 
@@ -100,13 +104,26 @@ async def async_main(settings: Settings) -> None:
     websocket = WEBSOCKET_MANAGER
     await websocket.set_ui_settings(settings.ui)
 
+    storage = StorageManager(
+        settings.storage,
+        hyperdeck,
+        settings.hyperdeck.address,
+        arena,
+        db,
+        websocket,
+    )
+
     controller = VARController(settings.var, arena, hyperdeck, websocket, db)
     register_controller_to_web(controller)
+    # Late-bound so that storage management depends on the controller without the
+    # controller needing to know about storage management
+    storage.set_host(controller)
 
     try:
         async with asyncio.TaskGroup() as tg:
             tg.create_task(arena.run())
             tg.create_task(hyperdeck.run())
+            tg.create_task(storage.run())
             tg.create_task(run_server(settings.server))
     except* ExitServer:
         pass

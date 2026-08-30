@@ -329,6 +329,21 @@ export interface HyperdeckStatus {
     remaining_space: number;
 }
 
+export enum StorageState {
+    Disabled = "disabled",
+    Ok = "ok",
+    Pending = "pending",
+    Cleaning = "cleaning",
+    Error = "error",
+}
+
+export interface StorageStatus {
+    state: StorageState;
+    pending_items: number;
+    offload_enabled: boolean;
+    last_error: string | null;
+}
+
 export enum WebsocketEventType {
     UISettings = "ui_settings",
     ControllerStatus = "controller_status",
@@ -339,6 +354,7 @@ export enum WebsocketEventType {
     ArenaConnection = "arena_connection",
     HyperdeckConnection = "hyperdeck_connection",
     HyperdeckStatus = "hyperdeck_status",
+    StorageStatus = "storage_status",
 }
 
 export interface WebsocketEvent {

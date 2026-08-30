@@ -1,4 +1,4 @@
-import { DEFAULT_MATCH_TIMING, DEFAULT_UI_SETTINGS, HyperdeckTransportMode, MatchState, MatchStatus, MatchType, PLACEHOLDER_REALTIME_SCORE, type ControllerStatus, type HyperdeckStatus, type Match, type MatchTime, type MatchTiming, type RealtimeScore, type UISettings, type VARMatchTable } from './model';
+import { DEFAULT_MATCH_TIMING, DEFAULT_UI_SETTINGS, HyperdeckTransportMode, MatchState, MatchStatus, MatchType, PLACEHOLDER_REALTIME_SCORE, StorageState, type ControllerStatus, type HyperdeckStatus, type Match, type MatchTime, type MatchTiming, type RealtimeScore, type StorageStatus, type UISettings, type VARMatchTable } from './model';
 
 export interface ServerState {
     ui_settings: UISettings;
@@ -12,6 +12,7 @@ export interface ServerState {
     match_timing: MatchTiming;
     match_time: MatchTime;
     hyperdeck_status: HyperdeckStatus;
+    storage_status: StorageStatus;
 }
 
 /** All state reported by the server to websocket clients */
@@ -53,5 +54,11 @@ export const server_state: ServerState = $state({
         remaining_record_time: 0,
         total_space: 1,
         remaining_space: 0,
+    },
+    storage_status: {
+        state: StorageState.Ok,
+        pending_items: 0,
+        offload_enabled: false,
+        last_error: null,
     },
 })

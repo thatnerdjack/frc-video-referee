@@ -189,6 +189,7 @@
     match_time_sec={effective_time}
     match_timing={server_state.match_timing}
     hyperdeck_status={server_state.hyperdeck_status}
+    storage_status={server_state.storage_status}
   />
 
   <main>

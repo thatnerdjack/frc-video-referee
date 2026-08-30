@@ -2,8 +2,10 @@
     import { formatMatchTime } from "../lib/match_time";
     import {
         HyperdeckTransportMode,
+        StorageState,
         type HyperdeckStatus,
         type MatchTiming,
+        type StorageStatus,
     } from "../lib/model";
     import pause_icon from "../assets/pause.svg";
     import play_icon from "../assets/play.svg";
@@ -18,6 +20,7 @@
         match_time_sec: number;
         match_timing: MatchTiming;
         hyperdeck_status: HyperdeckStatus;
+        storage_status: StorageStatus;
     }
 
     let {
@@ -28,6 +31,7 @@
         match_time_sec,
         match_timing,
         hyperdeck_status,
+        storage_status,
     }: Props = $props();
 
     let recorder_icon = $derived.by(() => {
@@ -60,6 +64,23 @@
             return `${mm}:${ss}`;
         }
     }
+
+    // Only surfaced when there is something the operator should know about; a healthy
+    // deck with plenty of space shows nothing extra in the banner
+    let storage_label = $derived.by(() => {
+        switch (storage_status.state) {
+            case StorageState.Pending:
+                return `Cleanup queued (${storage_status.pending_items})`;
+            case StorageState.Cleaning:
+                return storage_status.offload_enabled
+                    ? "Offloading\u2026"
+                    : "Cleaning up\u2026";
+            case StorageState.Error:
+                return "Cleanup failed";
+            default:
+                return null;
+        }
+    });
 
     function formatPercentage(numerator: number, denominator: number): string {
         if (denominator === 0) return "0%";
@@ -94,6 +115,15 @@
             hyperdeck_status.remaining_space,
             hyperdeck_status.total_space
         )})
+        {#if storage_label}
+            <span
+                class="storage-status"
+                class:storage-err={storage_status.state === StorageState.Error}
+                title={storage_status.last_error ?? undefined}
+            >
+                {storage_label}
+            </span>
+        {/if}
     </div>
 </header>
 
@@ -122,6 +152,19 @@
     }
 
     .status-err {
+        color: red;
+    }
+
+    .storage-status {
+        font-size: 0.7em;
+        font-weight: normal;
+        padding: 0 0.4em;
+        border-radius: 0.3em;
+        background-color: rgba(255, 255, 255, 0.15);
+        white-space: nowrap;
+    }
+
+    .storage-err {
         color: red;
     }
 

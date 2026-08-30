@@ -2,7 +2,7 @@ import { mount } from 'svelte'
 import './app.css'
 import App from './App.svelte'
 import WebSocketClient from './lib/wsclient.svelte'
-import { WebsocketEventType, type ControllerStatus, type HyperdeckStatus, type Match, type MatchTime, type RealtimeScore, type UISettings, type VARMatchTable } from './lib/model'
+import { WebsocketEventType, type ControllerStatus, type HyperdeckStatus, type Match, type MatchTime, type RealtimeScore, type StorageStatus, type UISettings, type VARMatchTable } from './lib/model'
 import { server_state } from './lib/server_state.svelte'
 
 const defaultDevWebsocketAddress = window.location.hostname + ':8000';
@@ -35,6 +35,9 @@ ws.subscribe(WebsocketEventType.HyperdeckConnection, (data) => {
 });
 ws.subscribe(WebsocketEventType.HyperdeckStatus, (data) => {
   server_state.hyperdeck_status = data as HyperdeckStatus;
+});
+ws.subscribe(WebsocketEventType.StorageStatus, (data) => {
+  server_state.storage_status = data as StorageStatus;
 });
 
 ws.enable();

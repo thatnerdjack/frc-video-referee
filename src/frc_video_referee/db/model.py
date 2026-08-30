@@ -92,3 +92,7 @@ class RecordedMatch(BaseModel):
     """Team numbers in the match, by alliance"""
     events: List[MatchEvent] = []
     """List of events during the match that the user can warp to"""
+    clip_deleted: bool = False
+    """Whether the clip for this match has been removed from the HyperDeck to reclaim storage"""
+    archive_path: str | None = None
+    """Local path the clip was offloaded to before deletion, if an offload location is configured"""
