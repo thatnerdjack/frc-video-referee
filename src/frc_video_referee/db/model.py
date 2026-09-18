@@ -81,11 +81,13 @@ class RecordedMatch(BaseModel):
     clip_id: int | None = None
     """Hyperdeck-assigned identifier for the recorded video clip"""
     clip_file_name: str
-    """Our chosen filename for the clip on the HyperDeck"""
+    """Name of the clip on the HyperDeck. Chosen by us, but updated to the name the HyperDeck
+    reported once the clip has been finalized"""
     match_start_timestamp: datetime
-    """Timestamp of the start of the match"""
+    """Timestamp of the start of the match. Event times are relative to this moment"""
     recording_start_timestamp: datetime
-    """Timestamp of the hyperdeck starting its recording"""
+    """Timestamp of the hyperdeck starting its recording. This is earlier than the match start
+    by the amount of pre-roll footage captured ahead of the match"""
     teams: Annotated[
         Dict[Alliance, AllianceTeamList], Field(min_length=2, max_length=2)
     ]

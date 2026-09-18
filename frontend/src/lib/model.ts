@@ -323,7 +323,8 @@ export interface ControllerStatus {
 export interface HyperdeckStatus {
     transport_mode: HyperdeckTransportMode;
     playing: boolean;
-    clip_time: number;
+    /** Current playback position, in seconds relative to the start of the match */
+    match_time: number;
     remaining_record_time: number;
     total_space: number;
     remaining_space: number;

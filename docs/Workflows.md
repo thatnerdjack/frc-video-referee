@@ -16,22 +16,46 @@ This document describes the expected workflows for using the VAR system
 
 1. Arena transitions to the match ready state (as reported in ArenaStatus notifications)
 2. VAR server automatically exits in-progress reviews and goes to the Live view
-3. Scorekeepr clicks Start Match in Cheesy Arena
-4. VAR server starts a recording in the HyperDeck
-5. Cheesy Arena reports end of the AUTO period
-6. VAR server automatically adds a review event for end-of-AUTO scoring 3 seconds after the report from Cheesy Arena
-7. Cheesy Arena reports end of the match
-8. VAR server automatically adds a review event for end-of-match scoring 3 seconds after the report from Cheesy Arena
-9. VAR server stops the HyperDeck recording 5 seconds after the end-of-match report from Cheesy Arena
-10. VAR server moves to post-match review mode and warps to the end-of-AUTO event
-11. VAR operator cross-checks AUTO scores and advances to end-of-match using the VAR tablet
-12. VAR operator cross-checks end-of-match scores using the VAR tablet
-13. VAR operator examines any other review events generated during the match using the VAR tablet
-14. VAR operator presess VAR ready button on the VAR tablet
-15. Head Referee sees the VAR ready status on the HR tablet
-16. Head Referee signals scoring ready, and Scorekeeper commits match scores
-17. VAR server automatically moves to Live view
-18. VAR server requests final match scores from Cheesy Arena and logs them for display in the VAR interface
+3. VAR server starts a pre-roll recording in the HyperDeck, restarting it every 10 seconds
+   while it waits for the match to start (see "Pre-roll recording" below)
+4. Scorekeepr clicks Start Match in Cheesy Arena
+5. VAR server keeps the in-progress pre-roll recording as the recording for the match, so the
+   clip also covers the moments leading up to the match start
+6. Cheesy Arena reports end of the AUTO period
+7. VAR server automatically adds a review event for end-of-AUTO scoring 3 seconds after the report from Cheesy Arena
+8. Cheesy Arena reports end of the match
+9. VAR server automatically adds a review event for end-of-match scoring 3 seconds after the report from Cheesy Arena
+10. VAR server stops the HyperDeck recording 5 seconds after the end-of-match report from Cheesy Arena
+11. VAR server moves to post-match review mode and warps to the end-of-AUTO event
+12. VAR operator cross-checks AUTO scores and advances to end-of-match using the VAR tablet
+13. VAR operator cross-checks end-of-match scores using the VAR tablet
+14. VAR operator examines any other review events generated during the match using the VAR tablet
+15. VAR operator presess VAR ready button on the VAR tablet
+16. Head Referee sees the VAR ready status on the HR tablet
+17. Head Referee signals scoring ready, and Scorekeeper commits match scores
+18. VAR server automatically moves to Live view
+19. VAR server requests final match scores from Cheesy Arena and logs them for display in the VAR interface
+
+## Pre-roll recording
+
+The HyperDeck cannot record continuously into a rolling buffer, so recording ahead of the match
+is done with a series of short recordings instead:
+
+1. The arena reports that it is ready to start a match
+2. VAR server starts recording, naming the clip after the match which is currently loaded
+3. Every `preroll-segment-duration` seconds, VAR server stops the recording and immediately
+   starts a new one. Whichever recording is in progress when the match starts becomes the clip
+   for that match, so it contains at most one segment worth of footage from before the match
+4. Loading a different match in Cheesy Arena restarts the recording under the new match's name
+5. Pre-roll stops when the arena is no longer ready to start, when the connection to Cheesy Arena
+   or the HyperDeck is lost, or when the VAR operator loads a match for review
+6. Pre-roll is abandoned if no match has started after `preroll-max-duration` seconds, so that an
+   arena which sits in the ready state does not fill the HyperDeck with unused recordings. It
+   resumes once arena readiness changes again or a new match is loaded
+
+Times recorded for review events are always relative to the start of the match, and the VAR server
+converts them into positions within the clip using the amount of pre-roll footage it captured.
+The discarded pre-roll segments are left on the HyperDeck and can be deleted from the device.
 
 # Logged Match Review
 

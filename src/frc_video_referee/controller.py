@@ -46,6 +46,23 @@ HYPERDECK_CONNECTION_EVENT = "hyperdeck_connection"
 HYPERDECK_STATUS_EVENT = "hyperdeck_status"
 
 
+def preroll_duration(match: RecordedMatch) -> float:
+    """Amount of footage recorded before the start of a match, in seconds"""
+    return (
+        match.match_start_timestamp - match.recording_start_timestamp
+    ).total_seconds()
+
+
+def match_time_to_clip_time(match: RecordedMatch, match_time: float) -> float:
+    """Convert a time relative to the start of a match into a time within its clip"""
+    return match_time + preroll_duration(match)
+
+
+def clip_time_to_match_time(match: RecordedMatch, clip_time: float) -> float:
+    """Convert a time within a match's clip into a time relative to the start of the match"""
+    return clip_time - preroll_duration(match)
+
+
 class VARSettings(BaseModel):
     """Settings for the VAR controller"""
 
@@ -64,10 +81,30 @@ class VARSettings(BaseModel):
     var_review_backdate_time: float = 0.0
     """Amount of time to backdate VAR review button presses during a match"""
 
+    preroll_enabled: bool = True
+    """Start recording as soon as the arena reports that it is ready to start a match, so that
+    the match clip includes the moments leading up to the match start"""
+
+    preroll_segment_duration: float = 10.0
+    """Interval at which the pre-roll recording is restarted while waiting for the match to start.
+
+    HyperDecks cannot record continuously into a rolling buffer, so the recording is restarted
+    periodically instead. The clip used for a match therefore contains at most this much footage
+    from before the match started."""
+
+    preroll_max_duration: float = 600.0
+    """Maximum amount of time to keep pre-rolling before giving up.
+
+    Prevents filling the HyperDeck with discarded pre-roll segments when the arena sits in the
+    ready-to-start state for a long time. Pre-roll resumes when the arena readiness changes or a
+    new match is loaded."""
+
 
 class ControllerState(enum.Enum):
     Idle = enum.auto()
     """No recording or playback in progress, showing live camera feed"""
+    Prerolling = enum.auto()
+    """Recording ahead of a match start, waiting for the match to actually begin"""
     Recording = enum.auto()
     """Currently recording a match"""
     ReviewingCurrentMatch = enum.auto()
@@ -101,10 +138,25 @@ class VARController:
         }
         self._current_match: MatchListEntry | None = None
 
+        self._preroll_task: asyncio.Task[None] | None = None
+        """Task which periodically restarts the pre-roll recording"""
+        self._preroll_clip_name: str | None = None
+        """Name of the pre-roll segment currently being recorded"""
+        self._preroll_segment_timestamp = datetime.now().astimezone()
+        """Timestamp of the start of the current pre-roll segment"""
+        self._preroll_start_time = 0.0
+        """Monotonic time at which pre-rolling started for the currently loaded match"""
+        self._preroll_expired = False
+        """Whether pre-roll has been abandoned until the arena state changes"""
+
         # Register callbacks for events that the controller is interested in
         arena_subscriptions = [
             # Match lifecycle events
             (ArenaNotifier.ARENA_READY_TO_START, self._handle_arena_ready_to_start),
+            (
+                ArenaNotifier.ARENA_NOT_READY_TO_START,
+                self._handle_arena_not_ready_to_start,
+            ),
             (ArenaNotifier.MATCH_STARTED, self._handle_match_start),
             (ArenaNotifier.AUTO_PERIOD_ENDED, self._handle_auto_period_end),
             (ArenaNotifier.MATCH_ENDED, self._handle_match_end),
@@ -268,12 +320,20 @@ class VARController:
         """Get the current match time in seconds."""
         if self._current_match is None:
             return 0.0
-        # TODO: Clean this up to anchor events to match start rather than recorder start
         time_seconds = (
             datetime.now().astimezone()
-            - self._current_match.var_data.recording_start_timestamp
+            - self._current_match.var_data.match_start_timestamp
         ).total_seconds()
         return max(0.0, time_seconds)
+
+    async def _warp_to_match_time(self, match: RecordedMatch, time: float):
+        """Warp the HyperDeck to a time relative to the start of a recorded match."""
+        clip_id = match.clip_id
+        if clip_id is None or not self._hyperdeck.has_playable_clip(clip_id):
+            return
+        await self._hyperdeck.warp_to_clip(
+            clip_id, match_time_to_clip_time(match, time)
+        )
 
     async def _save_and_unload_current_match(self, update_hyperdeck: bool = True):
         """Save the current match to the database and unload it."""
@@ -317,6 +377,11 @@ class VARController:
 
             clip_id = await self._hyperdeck.stop_recording()
             self._current_match.var_data.clip_id = clip_id
+            clip = self._hyperdeck.get_clip(clip_id)
+            if clip is not None:
+                # The HyperDeck may not use the requested name verbatim, for example when a
+                # clip with that name already exists
+                self._current_match.var_data.clip_file_name = clip.filePath
             self._current_match.clip_available = self._hyperdeck.has_playable_clip(
                 clip_id
             )
@@ -331,7 +396,9 @@ class VARController:
                     auto_end_event = event
                     break
             time_to_display = auto_end_event.time if auto_end_event else 0.0
-            await self._hyperdeck.warp_to_clip(clip_id, time_to_display)
+            await self._warp_to_match_time(
+                self._current_match.var_data, time_to_display
+            )
 
     def _refresh_hyperdeck_clip_presence(self):
         for var_match in self._matches.values():
@@ -424,28 +491,170 @@ class VARController:
                 self._db.save_match(self._current_match.var_data)
                 await self._websocket.notify(MATCH_LIST_EVENT)
 
+    ##############################
+    # Pre-roll recording control #
+    ##############################
+
+    async def _start_preroll(self):
+        """Start recording ahead of a match start if the arena is ready for one.
+
+        The caller must hold the controller lock.
+        """
+        if not self._settings.preroll_enabled or self._preroll_expired:
+            return
+        if self._state != ControllerState.Idle:
+            return
+        if not self._arena.connected or not self._arena.arena_status.can_start_match:
+            return
+        if not self._hyperdeck.connected:
+            return
+
+        clip_name = self._create_id_for_current_match()
+        try:
+            await self._hyperdeck.start_recording(clip_name)
+        except Exception as e:
+            logger.exception(f"Unable to start pre-roll recording: {e}")
+            return
+
+        self._preroll_clip_name = clip_name
+        self._preroll_segment_timestamp = datetime.now().astimezone()
+        self._preroll_start_time = asyncio.get_event_loop().time()
+        self._preroll_task = asyncio.create_task(self._preroll_cycle())
+        self._set_state(ControllerState.Prerolling)
+        logger.info(f"Started pre-roll recording for {clip_name}")
+        await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+
+    async def _restart_preroll_segment(self):
+        """Discard the in-progress pre-roll segment and start a fresh one.
+
+        The caller must hold the controller lock.
+        """
+        clip_name = self._create_id_for_current_match()
+        await self._hyperdeck.discard_recording()
+        await self._hyperdeck.start_recording(clip_name)
+        self._preroll_clip_name = clip_name
+        self._preroll_segment_timestamp = datetime.now().astimezone()
+        logger.debug(f"Restarted pre-roll recording for {clip_name}")
+
+    async def _stop_preroll(self, reason: str):
+        """Stop any in-progress pre-roll recording.
+
+        The caller must hold the controller lock.
+        """
+        self._cancel_preroll_task()
+        if self._state != ControllerState.Prerolling:
+            return
+
+        logger.info(f"Stopping pre-roll recording: {reason}")
+        self._preroll_clip_name = None
+        self._set_state(ControllerState.Idle)
+        if self._hyperdeck.connected:
+            try:
+                await self._hyperdeck.discard_recording()
+            except Exception as e:
+                logger.exception(f"Unable to stop pre-roll recording: {e}")
+        await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+
+    def _cancel_preroll_task(self):
+        """Stop the task which periodically restarts the pre-roll recording"""
+        task = self._preroll_task
+        self._preroll_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
+    async def _preroll_cycle(self):
+        """Restart the pre-roll recording periodically while waiting for a match to start.
+
+        The HyperDeck cannot record continuously into a rolling buffer, so the recording is
+        restarted at a fixed interval instead. Whichever segment happens to be recording when
+        the match starts is kept as the clip for that match, which bounds the amount of dead
+        air preceding the match to the length of one segment.
+        """
+        while True:
+            await asyncio.sleep(self._settings.preroll_segment_duration)
+            async with self._lock:
+                if self._state != ControllerState.Prerolling:
+                    return
+
+                elapsed = asyncio.get_event_loop().time() - self._preroll_start_time
+                if elapsed >= self._settings.preroll_max_duration:
+                    logger.warning(
+                        f"No match has started after {elapsed:.0f} seconds of pre-roll, "
+                        "giving up until the arena state changes"
+                    )
+                    self._preroll_expired = True
+                    await self._stop_preroll("pre-roll time limit reached")
+                    return
+
+                try:
+                    await self._restart_preroll_segment()
+                except Exception as e:
+                    logger.exception(f"Unable to restart pre-roll recording: {e}")
+                    await self._stop_preroll("the recording could not be restarted")
+                    return
+
     #######################################
     # Handlers for match lifecycle events #
     #######################################
 
     async def _handle_arena_ready_to_start(self):
         """Handle a notification that the arena is now ready for match start"""
-        pass
+        async with self._lock:
+            self._preroll_expired = False
+            if self._settings.preroll_enabled and self._state in (
+                ControllerState.ReviewingCurrentMatch,
+                ControllerState.ReviewingHistoricalMatch,
+            ):
+                # The next match is imminent, so return to the live view in order to
+                # start pre-rolling it
+                logger.info("Arena is ready to start a match, exiting review")
+                await self._save_and_unload_current_match()
+                self._set_state(ControllerState.Idle)
+                await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+            await self._start_preroll()
+
+    async def _handle_arena_not_ready_to_start(self):
+        """Handle a notification that the arena is no longer ready for match start"""
+        async with self._lock:
+            self._preroll_expired = False
+            await self._stop_preroll("the arena is no longer ready to start a match")
 
     async def _handle_match_start(self):
         """Handle a notification that a match has started"""
         async with self._lock:
             match_timestamp = datetime.now().astimezone()
+
+            # Capture the state of any pre-roll recording before it is torn down
+            prerolling = self._state == ControllerState.Prerolling
+            preroll_clip_name = self._preroll_clip_name
+            preroll_timestamp = self._preroll_segment_timestamp
+            self._cancel_preroll_task()
+            self._preroll_clip_name = None
+            self._preroll_expired = False
+
             await self._save_and_unload_current_match(update_hyperdeck=False)
             self._set_state(ControllerState.Recording)
 
             match_id = self._create_id_for_current_match()
 
-            recording_name = match_id
-            clip_id = await self._hyperdeck.start_recording(recording_name)
-            logger.debug(f"HyperDeck clip ID: {clip_id} with filename {recording_name}")
+            if prerolling and preroll_clip_name is not None:
+                # Keep the pre-roll recording running so that the clip for this match also
+                # covers the moments leading up to the match start
+                recording_name = preroll_clip_name
+                recording_timestamp = preroll_timestamp
+                if recording_name != match_id:
+                    logger.warning(
+                        f"Pre-roll recording is named {recording_name} but match {match_id} was started"
+                    )
+                logger.info(
+                    f"Adopting pre-roll recording {recording_name} for match {match_id} with "
+                    f"{(match_timestamp - recording_timestamp).total_seconds():.1f} seconds of pre-roll"
+                )
+            else:
+                recording_name = match_id
+                await self._hyperdeck.start_recording(recording_name)
+                recording_timestamp = datetime.now().astimezone()
 
-            recording_timestamp = datetime.now().astimezone()
             logger.info(
                 f"Started recording of match {match_id} at {recording_timestamp.isoformat()}"
             )
@@ -531,6 +740,7 @@ class VARController:
             await self._save_and_unload_current_match()
             self._set_state(ControllerState.Idle)
             await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+            await self._start_preroll()
 
     ###############################################
     # Emitters for nontrivial UI event payloads   #
@@ -540,6 +750,9 @@ class VARController:
         match self._state:
             case ControllerState.Idle:
                 recording = False
+                realtime_data = True
+            case ControllerState.Prerolling:
+                recording = True
                 realtime_data = True
             case ControllerState.Recording:
                 recording = True
@@ -565,17 +778,20 @@ class VARController:
     def _get_hyperdeck_status_event(self) -> dict:
         """Get the current HyperDeck status for the UI."""
         if not self._current_match or self._current_match.var_data.clip_id is None:
-            clip_time = 0.0
+            match_time = 0.0
         else:
-            clip_time = self._hyperdeck.get_current_time_within_clip(
-                self._current_match.var_data.clip_id
+            match_time = clip_time_to_match_time(
+                self._current_match.var_data,
+                self._hyperdeck.get_current_time_within_clip(
+                    self._current_match.var_data.clip_id
+                ),
             )
         playing = self._hyperdeck.playback_state.type == PlaybackType.Play
         active_working_set = self._hyperdeck.get_active_working_set()
         return HyperdeckStatus(
             transport_mode=self._hyperdeck.transport_mode,
             playing=playing,
-            clip_time=clip_time,
+            match_time=match_time,
             remaining_record_time=active_working_set.remainingRecordTime,
             total_space=active_working_set.totalSpace,
             remaining_space=active_working_set.remainingSpace,
@@ -587,6 +803,10 @@ class VARController:
 
     async def _handle_arena_connection_state_update(self):
         """Handle a notification that the arena connection state has changed"""
+        if not self._arena.connected:
+            # Without the arena there is no way to know when the match starts
+            async with self._lock:
+                await self._stop_preroll("the arena connection was lost")
         await self._websocket.notify(ARENA_CONNECTION_EVENT)
 
     async def _handle_historical_scores_update(self):
@@ -601,6 +821,19 @@ class VARController:
 
     async def _handle_match_data_update(self):
         """Handle a notification that the match data has changed"""
+        async with self._lock:
+            # A newly loaded match gets a fresh pre-roll allowance
+            self._preroll_expired = False
+            if self._state != ControllerState.Prerolling:
+                await self._start_preroll()
+            elif self._create_id_for_current_match() != self._preroll_clip_name:
+                # A different match is now loaded, so the recording needs a new name
+                self._preroll_start_time = asyncio.get_event_loop().time()
+                try:
+                    await self._restart_preroll_segment()
+                except Exception as e:
+                    logger.exception(f"Unable to restart pre-roll recording: {e}")
+                    await self._stop_preroll("the recording could not be restarted")
         await self._websocket.notify(CURRENT_MATCH_DATA_EVENT)
 
     async def _handle_match_timing_update(self):
@@ -617,6 +850,11 @@ class VARController:
 
     async def _handle_hyperdeck_connection_state_update(self):
         """Handle a notification that the HyperDeck connection state has changed"""
+        async with self._lock:
+            if self._hyperdeck.connected:
+                await self._start_preroll()
+            else:
+                await self._stop_preroll("the HyperDeck connection was lost")
         await self._websocket.notify(HYPERDECK_CONNECTION_EVENT)
 
     async def _handle_hyperdeck_transport_mode_update(self):
@@ -643,19 +881,19 @@ class VARController:
     async def _handle_load_match_command(self, command: LoadMatchCommand):
         """Handle a command to load a match for review."""
         async with self._lock:
-            if (
-                self._state == ControllerState.Idle
-                or self._state == ControllerState.ReviewingHistoricalMatch
+            if self._state in (
+                ControllerState.Idle,
+                ControllerState.Prerolling,
+                ControllerState.ReviewingHistoricalMatch,
             ):
                 if command.match_id not in self._matches:
                     logger.error(f"Match {command.match_id} not found")
                     return
 
+                await self._stop_preroll("a match was selected for review")
                 self._current_match = self._matches[command.match_id]
-                self._state = ControllerState.ReviewingHistoricalMatch
-                clip_id = self._current_match.var_data.clip_id
-                if clip_id and self._hyperdeck.has_playable_clip(clip_id):
-                    await self._hyperdeck.warp_to_clip(clip_id, 0.0)
+                self._set_state(ControllerState.ReviewingHistoricalMatch)
+                await self._warp_to_match_time(self._current_match.var_data, 0.0)
                 await self._websocket.notify(CONTROLLER_STATUS_EVENT)
 
     async def _handle_warp_to_time_command(self, command: WarpToTimeCommand):
@@ -672,9 +910,7 @@ class VARController:
             ):
                 # Race condition, ignore the command
                 return
-            clip_id = self._current_match.var_data.clip_id
-            if clip_id and self._hyperdeck.has_playable_clip(clip_id):
-                await self._hyperdeck.warp_to_clip(clip_id, command.time)
+            await self._warp_to_match_time(self._current_match.var_data, command.time)
 
     async def _internal_add_var_review(self, event_type: MatchEventType, time: float):
         """Internal method to add an event to the current match."""
@@ -719,6 +955,7 @@ class VARController:
                 await self._save_and_unload_current_match()
                 self._set_state(ControllerState.Idle)
                 await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+                await self._start_preroll()
 
     async def _handle_update_event_command(self, command: UpdateEventCommand):
         """Handle a command to update an existing event in a match."""

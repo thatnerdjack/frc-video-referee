@@ -62,7 +62,25 @@ folder = "myevent.db" # Create a new DB folder for each event
 
 [ui]
 swap-red-blue = true # Swap red vs blue in the UI to match the VAR field view
+
+[var]
+preroll-enabled = true # Start recording before the match starts
+preroll-segment-duration = 10.0 # Restart the pre-roll recording at this interval, in seconds
 ```
+
+### Pre-roll recording
+
+As soon as Cheesy Arena reports that the field is ready to start a match, the VAR server starts
+recording on the HyperDeck. Because the HyperDeck cannot record continuously into a rolling
+buffer, that recording is restarted every `preroll-segment-duration` seconds while waiting for
+the match to begin. Whichever recording happens to be running when the match starts is kept as
+the clip for that match, so it includes up to one segment worth of footage from before the match
+started without leaving a long unused recording in front of it.
+
+The recordings which get discarded this way are still left on the HyperDeck's disk, so they can
+be cleaned up from the device between events. If no match starts within `preroll-max-duration`
+seconds (10 minutes by default), pre-roll is abandoned until the arena readiness changes or a new
+match is loaded. Set `preroll-enabled = false` to only record from the start of the match.
 
 ## Rebuilding after making local changes
 

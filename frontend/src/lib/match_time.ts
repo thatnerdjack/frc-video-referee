@@ -1,7 +1,8 @@
 import type { MatchTiming } from './model';
 
 export function formatMatchTime(time: number, timing: MatchTiming): string {
-    if (time == 0) {
+    // Negative times are footage recorded before the match started
+    if (time <= 0) {
         return 'Pre-Match';
     }
 
