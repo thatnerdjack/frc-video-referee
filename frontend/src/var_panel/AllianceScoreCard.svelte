@@ -2,6 +2,7 @@
     import {
         autoFuel,
         bonusRankingPoints,
+        fuelGoal,
         postMatchFuel,
         projectedRankingPoints,
         teleopFuel,
@@ -46,6 +47,8 @@
     let teleop_fuel = $derived(teleopFuel(score.hub));
     let post_match_fuel = $derived(postMatchFuel(score.hub));
     let total_fuel = $derived(auto_fuel + teleop_fuel + post_match_fuel);
+
+    let fuel_goal = $derived(fuelGoal(score_summary, settings));
 
     let rp_rows = $derived(bonusRankingPoints(score_summary, settings));
     let projected_rp = $derived(
@@ -117,8 +120,8 @@
                 <div class="fuel-total">
                     <div class="fuel-count">{score_summary.num_fuel}</div>
                     <div class="fuel-goal">
-                        {#if score_summary.num_fuel_goal > 0}
-                            of {score_summary.num_fuel_goal}
+                        {#if fuel_goal !== null}
+                            of {fuel_goal}
                         {:else}
                             scored
                         {/if}

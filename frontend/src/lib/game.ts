@@ -205,6 +205,29 @@ export function bonusRankingPoints(
     return rows;
 }
 
+/**
+ * The next Fuel total the alliance is working towards, taken from the enabled Fuel
+ * ranking points and this event's configured thresholds.
+ *
+ * Returns null when there is nothing left to chase, either because every enabled Fuel
+ * RP is already met or because the event has turned them all off. The arena's own
+ * NumFuelGoal is deliberately not used here, since it always reflects the arena's
+ * thresholds even for an RP this event does not award.
+ */
+export function fuelGoal(summary: ScoreSummary, settings: UISettings): number | null {
+    const thresholds = [settings.energized_rp, settings.supercharged_rp]
+        .filter((rp) => rp.enabled && rp.threshold > 0)
+        .map((rp) => rp.threshold)
+        .sort((a, b) => a - b);
+
+    for (const threshold of thresholds) {
+        if (summary.num_fuel < threshold) {
+            return threshold;
+        }
+    }
+    return null;
+}
+
 export type MatchOutcome = 'win' | 'loss' | 'tie';
 
 /** Outcome of the match for the alliance whose summary is given first */

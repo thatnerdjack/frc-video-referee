@@ -96,6 +96,12 @@ threshold = 40  # Tower points needed, default 50
 value = 2       # Ranking points awarded, default 1
 ```
 
+Any bonus ranking point can be switched off with `enabled = false`, including all of
+them at once. A disabled RP is hidden from the panel and left out of the projected RP
+total, and disabling both Fuel RPs also drops the Fuel goal readout, so the card shows
+"90 scored" rather than a target the event does not award. The win/tie/loss RP is
+always shown, since every match has an outcome.
+
 Set the thresholds to match the equivalent settings in Cheesy Arena, which computes
 whether each RP was actually earned. The panel always shows the arena's verdict as
 the check mark and uses the configured threshold only for the progress number beside
