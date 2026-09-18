@@ -369,10 +369,14 @@
     flex-direction: column;
   }
 
+  /* The match detail column never scrolls: the scores, the selected event and the
+     timeline all have to be on screen at once during a review */
   .match-scroll-area {
     flex: 1 1 0%;
     min-height: 0;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .timeline-container {
@@ -380,13 +384,33 @@
     padding: 10px 20px;
   }
 
+  @media (max-height: 650px) {
+    .timeline-container {
+      padding: 4px 20px 6px 20px;
+    }
+
+    .event-info-container {
+      margin: 4px 10px;
+    }
+  }
+
+  /* Takes the space left over by the score cards so the field map is as large as
+     the display allows, instead of leaving a gap above the timeline */
+  /* Takes the space left over by the score cards so the field map is as large as
+     the display allows, instead of leaving a gap above the timeline. Short displays
+     drop the field map (see EventCard) so the card still fits at its natural size. */
   .event-info-container {
+    flex: 1 1 auto;
+    min-height: 0;
     margin: 10px;
     display: flex;
     justify-content: center;
+    align-items: stretch;
+    overflow: hidden;
   }
 
   .event-placeholder {
+    align-self: center;
     color: var(--text-inactive-dark);
     padding: 1.5em;
     font-style: italic;
@@ -450,6 +474,11 @@
     }
 
     .match-scroll-area {
+      flex: 0 0 auto;
+      overflow: visible;
+    }
+
+    .event-info-container {
       flex: 0 0 auto;
       overflow: visible;
     }

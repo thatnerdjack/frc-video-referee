@@ -423,6 +423,24 @@
         visibility: hidden;
     }
 
+    /* Very short displays: scale the whole card down so the scores, the event card
+       and the timeline all still fit without scrolling */
+    @media (max-height: 700px) {
+        .alliance-score {
+            font-size: 0.85em;
+        }
+    }
+
+    @media (max-height: 650px) {
+        .alliance-score {
+            font-size: 0.75em;
+            gap: 4px;
+        }
+        .score-card {
+            padding: 3px 5px;
+        }
+    }
+
     /* Short landscape displays, e.g. a tablet in a stand: trade padding for the
        vertical room the event card and timeline need */
     @media (max-height: 850px) {

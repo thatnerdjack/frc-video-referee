@@ -109,15 +109,15 @@ export function shiftName(shift: Shift): string {
     }
 }
 
-/** Label for a robot's climb status on the Tower */
+/** Short label for a robot's climb status on the Tower */
 export function towerStatusLabel(status: TowerStatus): string {
     switch (status) {
         case TowerStatus.LEVEL_1:
-            return 'Level 1';
+            return 'L1';
         case TowerStatus.LEVEL_2:
-            return 'Level 2';
+            return 'L2';
         case TowerStatus.LEVEL_3:
-            return 'Level 3';
+            return 'L3';
         case TowerStatus.NONE:
             return 'None';
         default:

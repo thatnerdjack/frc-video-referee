@@ -246,8 +246,10 @@
     }
 
     .event-data-container {
-        flex: 1 1 0%;
-        min-width: 0;
+        /* Never squeezed below the width the team numbers and timestamp need; the
+           field map beside it gives up space instead */
+        flex: 1 1 auto;
+        min-width: 21em;
         display: flex;
         flex-direction: column;
     }
@@ -378,27 +380,35 @@
     }
 
     .field-container {
-        flex: 0 1 420px;
+        flex: 0 1 auto;
         min-width: 0;
+        overflow: hidden;
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 8px;
     }
 
-    /* Put the field map below the details once the card gets narrow */
-    @media (max-width: 1100px) {
-        .event-card {
-            flex-wrap: wrap;
-        }
-        .field-container {
-            flex: 1 1 100%;
-        }
-    }
-
+    /* The map always stays beside the details. Wrapping it underneath would make it
+       the first thing squeezed flat in a layout that never scrolls. */
     @media (max-width: 700px) {
         .field-container {
             display: none;
+        }
+    }
+
+    /* On a short display the field map is the first thing to go: the reason and team
+       assignment are what the operator actually needs on screen */
+    @media (max-height: 700px) {
+        .field-container {
+            display: none;
+        }
+        .event-sections {
+            padding: 4px 8px;
+            gap: 4px;
+        }
+        .event-reason {
+            min-height: 2.2em;
         }
     }
 </style>

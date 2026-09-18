@@ -12,118 +12,91 @@
     }
     let { statuses, teams, points }: Props = $props();
 
-    const levels = [TowerStatus.LEVEL_3, TowerStatus.LEVEL_2, TowerStatus.LEVEL_1];
-
-    /** Teams parked at each rung of the tower, highest rung first */
-    let rungs = $derived(
-        levels.map((level) => ({
-            level,
-            label: towerStatusLabel(level),
-            teams: teams.filter((_, idx) => statuses[idx] === level),
-        })),
-    );
-    let grounded = $derived(
-        teams.filter(
-            (_, idx) => (statuses[idx] ?? TowerStatus.NONE) === TowerStatus.NONE,
-        ),
+    let entries = $derived(
+        teams.map((team, idx) => {
+            const status = statuses[idx] ?? TowerStatus.NONE;
+            return {
+                team,
+                status,
+                label: towerStatusLabel(status),
+                climbed: status !== TowerStatus.NONE,
+            };
+        }),
     );
 </script>
 
-<div class="tower">
-    {#each rungs as rung (rung.level)}
-        <div class="rung" class:occupied={rung.teams.length > 0}>
-            <div class="rung-label">{rung.label}</div>
-            <div class="rung-teams">
-                {#each rung.teams as team (team)}
-                    <span class="team-chip">{team}</span>
-                {/each}
-            </div>
+<div class="tower-row">
+    {#each entries as entry, idx (idx)}
+        <div class="status-box" class:highlight={entry.climbed}>
+            <div class="status-row1">{entry.team || "—"}</div>
+            <div class="status-row2">{entry.label}</div>
         </div>
     {/each}
-    <div class="rung ground">
-        <div class="rung-label">None</div>
-        <div class="rung-teams">
-            {#each grounded as team (team)}
-                <span class="team-chip empty">{team}</span>
-            {/each}
-        </div>
-    </div>
     {#if points !== undefined}
-        <div class="tower-points">{points} pts</div>
+        <div class="tower-points">
+            <span class="points-value">{points}</span>
+            <span class="points-unit">pts</span>
+        </div>
     {/if}
 </div>
 
 <style>
-    .tower {
+    /* Climbs are rare in match, so this stays a single compact row rather than a
+       rung-by-rung diagram, leaving the vertical room for fuel and the timeline */
+    .tower-row {
         display: flex;
-        flex-direction: column;
-        gap: 3px;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 6px;
         width: 100%;
     }
 
-    @media (max-height: 850px) {
-        .tower {
-            gap: 2px;
-        }
-        .rung {
-            min-height: 1.6em;
-        }
-    }
-
-    .rung {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: 0.5em;
-        border-radius: 6px;
-        background-color: var(--neutral-action);
-        padding: 2px 6px;
-        min-height: 1.9em;
-    }
-
-    .rung.occupied {
-        background-color: var(--alliance-action);
-        color: var(--text-active);
-    }
-
-    .rung.ground {
-        background-color: transparent;
-        border: 1px dashed var(--neutral-inactive);
-    }
-
-    .rung-label {
-        font-weight: bold;
-        font-size: 0.85em;
-        width: 4.5em;
-        text-align: left;
-        white-space: nowrap;
-    }
-
-    .rung-teams {
+    .status-box {
         flex: 1 1 0%;
-        display: flex;
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 4px;
-        justify-content: flex-end;
-    }
+        min-width: 0;
+        border-radius: 6px;
+        overflow: clip;
+        font-size: 0.9em;
 
-    .team-chip {
-        background-color: var(--alliance-highlight);
-        border-radius: 4px;
-        padding: 0 0.4em;
-        font-variant-numeric: tabular-nums;
-    }
+        & div {
+            padding: 0.1em 0.2em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
-    .team-chip.empty {
-        background-color: transparent;
-        color: var(--text-inactive-dark);
+        & .status-row1 {
+            background-color: var(--alliance-highlight);
+            font-weight: bold;
+            font-variant-numeric: tabular-nums;
+        }
+
+        &:not(.highlight) .status-row2 {
+            background-color: var(--neutral-action);
+            color: var(--text-inactive-dark);
+        }
+        &.highlight .status-row2 {
+            background-color: var(--alliance-action);
+            font-weight: bold;
+        }
     }
 
     .tower-points {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-end;
+        min-width: 3.2em;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .points-value {
         font-weight: bold;
-        text-align: right;
-        font-size: 0.85em;
-        padding-top: 2px;
+    }
+
+    .points-unit {
+        font-size: 0.7em;
+        color: var(--text-inactive-dark);
     }
 </style>
