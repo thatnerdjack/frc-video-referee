@@ -3,9 +3,10 @@ import enum
 import logging
 from typing import Awaitable, Callable, Dict, List
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 import websockets
 
+from frc_video_referee.settings import SettingsModel
 from frc_video_referee.hyperdeck.model import (
     PLACEHOLDER_PLAYBACK_STATE,
     Clip,
@@ -32,8 +33,11 @@ from frc_video_referee.utils import ExitServer
 
 logger = logging.getLogger(__name__)
 
+JSON_HEADERS = {"Content-Type": "application/json"}
+"""Content type for request bodies serialized from a pydantic model"""
 
-class HyperdeckClientSettings(BaseModel):
+
+class HyperdeckClientSettings(SettingsModel):
     address: str = "localhost:8001"
     clip_finalize_poll_interval: float = 0.25
     """Interval in seconds between polling attempts when waiting for clip to finalize after recording stops"""
@@ -216,6 +220,7 @@ class HyperdeckClient:
         response = await self._client.post(
             "/transports/0/record",
             content=request.model_dump_json(exclude_none=True),
+            headers=JSON_HEADERS,
         )
         response.raise_for_status()
 
@@ -301,12 +306,16 @@ class HyperdeckClient:
             position=timeline_position,
         )
         response = await self._client.put(
-            "/transports/0/playback", content=request.model_dump_json()
+            "/transports/0/playback",
+            content=request.model_dump_json(),
+            headers=JSON_HEADERS,
         )
         response.raise_for_status()
         # Do it again after the clip loads to actually set the time?
         response = await self._client.put(
-            "/transports/0/playback", content=request.model_dump_json()
+            "/transports/0/playback",
+            content=request.model_dump_json(),
+            headers=JSON_HEADERS,
         )
         response.raise_for_status()
 
@@ -314,7 +323,9 @@ class HyperdeckClient:
         """Show the live view from the HyperDeck."""
         request = TransportModeRequest(mode=TransportMode.InputPreview)
         response = await self._client.put(
-            "/transports/0", content=request.model_dump_json()
+            "/transports/0",
+            content=request.model_dump_json(),
+            headers=JSON_HEADERS,
         )
         response.raise_for_status()
 

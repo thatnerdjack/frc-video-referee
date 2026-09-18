@@ -13,8 +13,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
+from frc_video_referee.settings import SettingsModel
 from frc_video_referee.web.model import (
     InboundWebsocketMessage,
     WebsocketCommand,
@@ -32,17 +33,92 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-class UISettings(BaseModel):
+class MatchRankingPointSettings(SettingsModel):
+    """Ranking points awarded for the outcome of a match.
+
+    Off-season events frequently deviate from the official values, so these are
+    configurable rather than baked in to the panel.
+    """
+
+    win: int = 3
+    """Ranking points awarded to an alliance which wins the match"""
+
+    tie: int = 1
+    """Ranking points awarded to each alliance when the match is tied"""
+
+    loss: int = 0
+    """Ranking points awarded to an alliance which loses the match"""
+
+
+class BonusRankingPointSettings(SettingsModel):
+    """Display and scoring configuration for one bonus ranking point.
+
+    Each bonus has its own subclass so that overriding one field in a config file
+    leaves the remaining defaults for that bonus intact.
+    """
+
+    enabled: bool = True
+    """Whether this ranking point is in use at this event. Disabled RPs are hidden from the panel"""
+
+    label: str = ""
+    """Name shown for this ranking point in the panel"""
+
+    threshold: int = 0
+    """Value which must be reached to earn this ranking point, used for the panel's progress display"""
+
+    value: int = 1
+    """Ranking points awarded for earning this bonus"""
+
+
+class EnergizedRankingPointSettings(BonusRankingPointSettings):
+    """Configuration for the first Fuel bonus ranking point"""
+
+    label: str = "Energized"
+    """Name shown for this ranking point in the panel"""
+
+    threshold: int = 100
+    """Fuel count needed for the bonus, matching Cheesy Arena's Energized bonus threshold"""
+
+
+class SuperchargedRankingPointSettings(BonusRankingPointSettings):
+    """Configuration for the second Fuel bonus ranking point"""
+
+    label: str = "Supercharged"
+    """Name shown for this ranking point in the panel"""
+
+    threshold: int = 360
+    """Fuel count needed for the bonus, matching Cheesy Arena's Supercharged bonus threshold"""
+
+
+class TraversalRankingPointSettings(BonusRankingPointSettings):
+    """Configuration for the Tower bonus ranking point"""
+
+    label: str = "Traversal"
+    """Name shown for this ranking point in the panel"""
+
+    threshold: int = 50
+    """Tower points needed for the bonus, matching Cheesy Arena's Traversal bonus threshold"""
+
+
+class UISettings(SettingsModel):
     """Settings for the user-facing control and status panels"""
 
     swap_red_blue: bool = False
     """Swap the position of the red and blue score panels. The default matches the view from the scoring table"""
 
-    reef_level_rp_threshold: int = 5
-    """Per-level threshold on reef for achieving the coral RP"""
+    match_rp: MatchRankingPointSettings = MatchRankingPointSettings()
+    """Ranking points awarded for winning, tying, or losing a match"""
 
-    barge_rp_threshold: int = 14
-    """Threshold of barge points to achieve the RP"""
+    energized_rp: EnergizedRankingPointSettings = EnergizedRankingPointSettings()
+    """First Fuel bonus ranking point"""
+
+    supercharged_rp: SuperchargedRankingPointSettings = (
+        SuperchargedRankingPointSettings()
+    )
+    """Second Fuel bonus ranking point"""
+
+    traversal_rp: TraversalRankingPointSettings = TraversalRankingPointSettings()
+    """Tower bonus ranking point"""
 
 
 class WebsocketManager:
@@ -243,11 +319,14 @@ ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "password"  # TODO: Move to environment variable
 
 
-class ServerSettings(BaseModel, use_attribute_docstrings=True):
+class ServerSettings(SettingsModel):
     """Settings for the web server."""
 
     host: str = "0.0.0.0"
+    """Address to bind the web server to"""
+
     port: int = 8000
+    """Port to serve the VAR panel and its API on"""
 
 
 def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
@@ -296,15 +375,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Set up static files
-static_dir = get_static_directory()
-app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+# Set up static files. The lookup is deferred until the server actually runs so that
+# the module can be imported without a frontend build present.
+_static_dir: Path | None = None
+
+
+def _get_static_dir() -> Path:
+    global _static_dir
+    if _static_dir is None:
+        _static_dir = get_static_directory()
+    return _static_dir
 
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """Serve the main application page."""
-    index_file = static_dir / "index.html"
+    index_file = _get_static_dir() / "index.html"
     return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
 
 
@@ -337,6 +423,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
 async def run(settings: ServerSettings) -> None:
     """Run the FastAPI server."""
+    static_dir = _get_static_dir()
+    app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+
     config = uvicorn.Config(
         "frc_video_referee.web:app",
         host=settings.host,

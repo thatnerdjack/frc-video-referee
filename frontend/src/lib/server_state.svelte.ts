@@ -1,4 +1,19 @@
-import { DEFAULT_MATCH_TIMING, DEFAULT_UI_SETTINGS, HyperdeckTransportMode, MatchState, MatchStatus, MatchType, PLACEHOLDER_REALTIME_SCORE, type ControllerStatus, type HyperdeckStatus, type Match, type MatchTime, type MatchTiming, type RealtimeScore, type UISettings, type VARMatchTable } from './model';
+import {
+    DEFAULT_MATCH_TIMING,
+    DEFAULT_UI_SETTINGS,
+    HyperdeckTransportMode,
+    MatchState,
+    PLACEHOLDER_MATCH,
+    PLACEHOLDER_REALTIME_SCORE,
+    type ControllerStatus,
+    type HyperdeckStatus,
+    type Match,
+    type MatchTime,
+    type MatchTiming,
+    type RealtimeScore,
+    type UISettings,
+    type VARMatchTable,
+} from './model';
 
 export interface ServerState {
     ui_settings: UISettings;
@@ -26,20 +41,7 @@ export const server_state: ServerState = $state({
     },
 
     matches: {},
-    realtime_match: {
-        id: 0,
-        match_type: MatchType.TEST,
-        type_order: 0,
-        long_name: '',
-        short_name: '',
-        red1: 0,
-        red2: 0,
-        red3: 0,
-        blue1: 0,
-        blue2: 0,
-        blue3: 0,
-        status: MatchStatus.SCHEDULED,
-    },
+    realtime_match: { ...PLACEHOLDER_MATCH },
     realtime_score: PLACEHOLDER_REALTIME_SCORE,
     match_timing: DEFAULT_MATCH_TIMING,
     match_time: {

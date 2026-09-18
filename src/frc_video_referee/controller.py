@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List
 import uuid
 
-from pydantic import BaseModel
+from frc_video_referee.settings import SettingsModel
 from frc_video_referee import db
 from frc_video_referee.cheesy_arena.model import Foul
 from frc_video_referee.db.model import (
@@ -20,6 +20,7 @@ from frc_video_referee.cheesy_arena.client import ArenaNotifier, CheesyArenaClie
 from frc_video_referee.hyperdeck.model import PlaybackType
 from frc_video_referee.model import (
     AddVARReviewCommand,
+    DeleteEventCommand,
     ExitReviewCommand,
     LoadMatchCommand,
     UpdateEventCommand,
@@ -46,7 +47,7 @@ HYPERDECK_CONNECTION_EVENT = "hyperdeck_connection"
 HYPERDECK_STATUS_EVENT = "hyperdeck_status"
 
 
-class VARSettings(BaseModel):
+class VARSettings(SettingsModel):
     """Settings for the VAR controller"""
 
     auto_scoring_delay: float = 3.0
@@ -222,6 +223,11 @@ class VARController:
             UpdateEventCommand,
             self._handle_update_event_command,
         )
+        self._websocket.add_command_handler(
+            "delete_event",
+            DeleteEventCommand,
+            self._handle_delete_event_command,
+        )
 
         self._refresh_hyperdeck_clip_presence()
         self._refresh_arena_match_data()
@@ -310,7 +316,12 @@ class VARController:
                 logger.debug("Not in recording state, nothing to finalize")
                 return
 
-            assert self._current_match is not None, "No current match to finalize"
+            if self._current_match is None:
+                logger.warning("No current match to finalize, returning to idle")
+                self._set_state(ControllerState.Idle)
+                await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+                return
+
             logger.info(
                 f"Match {self._current_match.var_data.var_id} ended, stopping recording"
             )
@@ -442,8 +453,15 @@ class VARController:
             match_id = self._create_id_for_current_match()
 
             recording_name = match_id
-            clip_id = await self._hyperdeck.start_recording(recording_name)
-            logger.debug(f"HyperDeck clip ID: {clip_id} with filename {recording_name}")
+            try:
+                await self._hyperdeck.start_recording(recording_name)
+            except Exception as e:
+                # Without a recording there is nothing to review, so fall back to the
+                # idle state rather than leaving a half-started match behind.
+                logger.exception(f"Failed to start recording for {match_id}: {e}")
+                self._set_state(ControllerState.Idle)
+                await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+                return
 
             recording_timestamp = datetime.now().astimezone()
             logger.info(
@@ -753,5 +771,30 @@ class VARController:
                     logger.warning(f"Event field {field} not found")
 
             # Save the updated match
+            self._db.save_match(match_entry.var_data)
+            await self._websocket.notify(MATCH_LIST_EVENT)
+
+    async def _handle_delete_event_command(self, command: DeleteEventCommand):
+        """Handle a command to delete an event from a match."""
+        async with self._lock:
+            match_entry = self._matches.get(command.match_id)
+            if not match_entry:
+                logger.warning(f"Match {command.match_id} not found")
+                return
+
+            events = match_entry.var_data.events
+            remaining = [
+                event for event in events if event.event_id != command.event_id
+            ]
+            if len(remaining) == len(events):
+                logger.warning(
+                    f"Event {command.event_id} not found in match {command.match_id}"
+                )
+                return
+
+            logger.info(
+                f"Deleted event {command.event_id} from match {command.match_id}"
+            )
+            match_entry.var_data.events = remaining
             self._db.save_match(match_entry.var_data)
             await self._websocket.notify(MATCH_LIST_EVENT)

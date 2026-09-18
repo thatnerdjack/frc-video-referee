@@ -5,8 +5,9 @@ from typing import Awaitable, Callable, Dict, Generic, List, NamedTuple, TypeVar
 import httpx
 import websockets
 import logging
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
+from frc_video_referee.settings import SettingsModel
 from frc_video_referee.db import DB
 from frc_video_referee.db.model import ArenaClientState
 
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-class ArenaClientSettings(BaseModel, use_attribute_docstrings=True):
+class ArenaClientSettings(SettingsModel):
     """Settings for the Cheesy Arena client."""
 
     address: str = "10.0.100.5:8080"

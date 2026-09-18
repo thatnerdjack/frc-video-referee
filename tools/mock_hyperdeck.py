@@ -117,6 +117,14 @@ class MockHyperDeckState:
         self._pending_finalization: Optional[PendingFinalization] = None
         """Pending finalization data including finalization time"""
 
+        # Mock storage media, reported through the /media/workingset property
+        self.total_space: int = 2 * 1024**4
+        """Total space on the mock disk in bytes"""
+        self.remaining_space: int = self.total_space
+        """Remaining space on the mock disk in bytes"""
+        self.remaining_record_time: int = 6 * 60 * 60
+        """Remaining record time on the mock disk in seconds"""
+
     def set_transport_mode(self, mode: str):
         """Set the transport mode."""
         if self.transport_mode in ["InputRecord", "InputPreview"] and mode == "Output":
@@ -293,6 +301,22 @@ class MockHyperDeckState:
             return {"recording": self.recording}
         elif property_path == "/transports/0/clipIndex":
             return {"clipIndex": self.clip_index}
+        elif property_path == "/media/workingset":
+            return {
+                "size": 1,
+                "workingset": [
+                    {
+                        "index": 0,
+                        "activeDisk": True,
+                        "volume": "Mock SSD",
+                        "deviceName": "mock-ssd-1",
+                        "remainingRecordTime": self.remaining_record_time,
+                        "totalSpace": self.total_space,
+                        "remainingSpace": self.remaining_space,
+                        "clipCount": len(self.clips),
+                    }
+                ],
+            }
         else:
             return {}
 

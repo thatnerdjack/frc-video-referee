@@ -1,6 +1,8 @@
 <script lang="ts">
     import { getEventTypeColor } from "../lib/events";
-    import type { MatchEvent, MatchTiming } from "../lib/model";
+    import { matchDuration, matchPhases, shiftWindows } from "../lib/match_time";
+    import { shiftName } from "../lib/game";
+    import { Shift, type MatchEvent, type MatchTiming } from "../lib/model";
 
     interface EventWithIdx {
         event_idx: number;
@@ -13,102 +15,136 @@
         warpToTime?: (time: number) => void;
         currentTime: number;
         match_timing: MatchTiming;
+        /** Extra recording time captured after the match ends */
+        scoring_capture_sec?: number;
     }
 
-    let { events, warpToEvent, warpToTime, currentTime, match_timing }: Props =
-        $props();
+    let {
+        events,
+        warpToEvent,
+        warpToTime,
+        currentTime,
+        match_timing,
+        scoring_capture_sec = 5,
+    }: Props = $props();
 
-    const num_ticks = 100000;
-    let scoring_capture_sec = 5;
+    const NUM_TICKS = 10000;
 
-    const auto_start_time = match_timing.warmup_duration_sec;
-    const auto_end_time = auto_start_time + match_timing.auto_duration_sec;
-    const teleop_start_time = auto_end_time + match_timing.pause_duration_sec;
-    const teleop_end_time =
-        teleop_start_time + match_timing.teleop_duration_sec;
-    const total_recording_duration = teleop_end_time + scoring_capture_sec;
+    // All of these must track the match timing reported by the arena, which arrives
+    // after the panel first renders and can change between matches.
+    let total_duration = $derived(
+        Math.max(1, matchDuration(match_timing) + scoring_capture_sec),
+    );
+    let ticks_per_second = $derived(NUM_TICKS / total_duration);
+    let phases = $derived(matchPhases(match_timing));
 
-    let ticks_per_second = num_ticks / total_recording_duration;
+    let periods = $derived([
+        { name: "auto", start: phases.auto.start, end: phases.auto.end },
+        { name: "teleop", start: phases.teleop.start, end: phases.teleop.end },
+    ]);
 
-    let periods = [
-        {
-            name: "auto",
-            start: auto_start_time * ticks_per_second,
-            end: auto_end_time * ticks_per_second,
-        },
-        {
-            name: "teleop",
-            start: teleop_start_time * ticks_per_second,
-            end: teleop_end_time * ticks_per_second,
-        },
-    ];
+    // Shift boundaries within teleop, so the operator can see which shift a moment
+    // belongs to without doing the arithmetic.
+    let shift_marks = $derived(
+        shiftWindows(match_timing)
+            .filter((window) => window.shift !== Shift.AUTO)
+            .map((window) => ({
+                shift: window.shift,
+                name: shiftName(window.shift),
+                start: window.start,
+            })),
+    );
 
-    let timeline_pos = $derived(currentTime * ticks_per_second);
+    function toPercent(time: number): number {
+        return (100 * Math.min(Math.max(time, 0), total_duration)) / total_duration;
+    }
+
+    /**
+     * Slider position, tracked separately from the reported time so that dragging
+     * stays smooth while the server catches up with the requested position.
+     */
+    let dragging = $state(false);
+    let drag_pos = $state(0);
+    let timeline_pos = $derived(
+        dragging ? drag_pos : Math.round(currentTime * ticks_per_second),
+    );
 
     function handlePointClick(mouseEvent: MouseEvent) {
         const target = mouseEvent.currentTarget as HTMLButtonElement;
         const event_idx = parseInt(target.dataset.eventIdx!, 10);
-        const event = events.find((e) => e.event_idx === event_idx)!.event;
-
-        warpToEvent?.(event);
-        timeline_pos = event.time * ticks_per_second;
+        const event = events.find((e) => e.event_idx === event_idx)?.event;
+        if (event) {
+            warpToEvent?.(event);
+        }
     }
 
-    function handleSliderChange(event: Event) {
+    function handleSliderInput(event: Event) {
         const target = event.target as HTMLInputElement;
         const timeInTicks = parseInt(target.value, 10);
-        const timeInSeconds = timeInTicks / ticks_per_second;
+        dragging = true;
+        drag_pos = timeInTicks;
+        warpToTime?.(timeInTicks / ticks_per_second);
+    }
 
-        warpToTime?.(timeInSeconds);
+    function handleSliderRelease() {
+        dragging = false;
     }
 </script>
 
-{#snippet timelinePoint(event: EventWithIdx)}
-    <button
-        class="point-wrap"
-        style="left: calc(((100% - 20px) * {(event.event.time *
-            ticks_per_second) /
-            num_ticks}));"
-        onclick={handlePointClick}
-        data-event-idx={event.event_idx}
-    >
-        <div
-            class="point-label"
-            style="background-color: {getEventTypeColor(
-                event.event.event_type,
-            )};"
-        >
-            {event.event_idx}
-        </div>
-    </button>
-{/snippet}
-
-{#snippet timelinePeriod(name: string, start: number, end: number)}
-    <div
-        class="slider-period {name}"
-        style="left: calc((100% - 20px) * {start /
-            num_ticks} + 10px); width: calc((100% - 20px) * {(end - start) /
-            num_ticks});"
-    ></div>
-{/snippet}
-
 <div class="timeline">
     <div class="timeline-points">
-        {#each events as event}
-            {@render timelinePoint(event)}
+        {#each events as event (event.event.event_id)}
+            <button
+                class="point-wrap"
+                type="button"
+                style="left: calc(10px + (100% - 20px) * {toPercent(
+                    event.event.time,
+                )} / 100);"
+                onclick={handlePointClick}
+                data-event-idx={event.event_idx}
+                aria-label="Jump to event {event.event_idx}"
+            >
+                <div
+                    class="point-label"
+                    style="background-color: {getEventTypeColor(
+                        event.event.event_type,
+                    )};"
+                >
+                    {event.event_idx}
+                </div>
+            </button>
         {/each}
     </div>
     <div class="slider-container">
-        {#each periods as period}
-            {@render timelinePeriod(period.name, period.start, period.end)}
+        {#each periods as period (period.name)}
+            <div
+                class="slider-period {period.name}"
+                style="left: calc(10px + (100% - 20px) * {toPercent(
+                    period.start,
+                )} / 100); width: calc((100% - 20px) * {toPercent(period.end) -
+                    toPercent(period.start)} / 100);"
+            ></div>
+        {/each}
+        {#each shift_marks as mark (mark.shift)}
+            <div
+                class="shift-mark"
+                title={mark.name}
+                style="left: calc(10px + (100% - 20px) * {toPercent(
+                    mark.start,
+                )} / 100);"
+            ></div>
         {/each}
         <input
             type="range"
             min="0"
-            max={num_ticks - 1}
+            max={NUM_TICKS}
             class="slider"
-            bind:value={timeline_pos}
-            oninput={handleSliderChange}
+            aria-label="Match timeline position"
+            value={timeline_pos}
+            oninput={handleSliderInput}
+            onchange={handleSliderRelease}
+            onpointerup={handleSliderRelease}
+            onpointercancel={handleSliderRelease}
         />
     </div>
 </div>
@@ -129,8 +165,10 @@
         position: absolute;
         background: none;
         top: 0;
+        transform: translateX(-50%);
         filter: drop-shadow(-1px 6px 3px rgba(0, 0, 0, 0.5));
         z-index: 2;
+        cursor: pointer;
     }
     .point-label {
         box-sizing: border-box;
@@ -161,6 +199,14 @@
             &.teleop {
                 background-color: var(--green-200);
             }
+        }
+
+        & .shift-mark {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background-color: #0006;
         }
     }
 
@@ -194,16 +240,10 @@
         &::-webkit-slider-thumb {
             @include thumb;
             -webkit-appearance: none;
-            //margin-top: -14px; /* You need to specify a margin in Chrome, but in Firefox and IE it is automatic */
         }
 
         /* All the same stuff for Firefox */
         &::-moz-range-thumb {
-            @include thumb;
-        }
-
-        /* All the same stuff for IE */
-        &::-ms-thumb {
             @include thumb;
         }
 
@@ -212,12 +252,6 @@
         }
         &::-moz-range-track {
             @include track;
-        }
-        &::-ms-track {
-            @include track;
-            background: transparent; /* IE requires a transparent background for the track */
-            border-color: transparent; /* IE requires a transparent border for the track */
-            color: transparent; /* IE requires a transparent color for the track */
         }
     }
 </style>

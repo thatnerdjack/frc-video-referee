@@ -3,9 +3,10 @@
 
     interface Props {
         match: VARMatch;
+        selected?: boolean;
         onclick?: (match: VARMatch) => void;
     }
-    let { match, onclick }: Props = $props();
+    let { match, selected = false, onclick }: Props = $props();
 
     let result = $derived(match.arena_data?.result);
     let result_style_class = $derived.by(() => {
@@ -20,33 +21,39 @@
                 return "";
         }
     });
+
+    let red_teams = $derived(match.var_data.teams[Alliance.RED] ?? [0, 0, 0]);
+    let blue_teams = $derived(match.var_data.teams[Alliance.BLUE] ?? [0, 0, 0]);
 </script>
 
-<button class="match-card" tabindex="0" onclick={() => onclick?.(match)}>
+<button
+    class="match-card"
+    class:selected
+    type="button"
+    onclick={() => onclick?.(match)}
+>
     <div class="card-header">{match.var_data.var_id}</div>
     <div class="match-details">
-        {#if match.arena_data}
-            {#if result}
-                <div class="match-section {result_style_class}">
-                    {result.red_summary.score} - {result.blue_summary.score}
-                </div>
-            {/if}
-        {:else}
-            <div class="match-section">No arena data</div>
+        {#if result}
+            <div class="match-section {result_style_class}">
+                {result.red_summary.score} - {result.blue_summary.score}
+            </div>
+        {:else if !match.arena_data}
+            <div class="match-section muted">No arena data</div>
         {/if}
         {#if !match.clip_available}
-            <div class="match-section">No video clip</div>
+            <div class="match-section muted">No video clip</div>
         {/if}
         <div class="match-section team-lists">
             <ol class="red">
-                <li>{match.var_data.teams[Alliance.RED][0]}</li>
-                <li>{match.var_data.teams[Alliance.RED][1]}</li>
-                <li>{match.var_data.teams[Alliance.RED][2]}</li>
+                {#each red_teams as team, idx (idx)}
+                    <li>{team}</li>
+                {/each}
             </ol>
             <ol class="blue">
-                <li>{match.var_data.teams[Alliance.BLUE][2]}</li>
-                <li>{match.var_data.teams[Alliance.BLUE][1]}</li>
-                <li>{match.var_data.teams[Alliance.BLUE][0]}</li>
+                {#each [...blue_teams].reverse() as team, idx (idx)}
+                    <li>{team}</li>
+                {/each}
             </ol>
         </div>
     </div>
@@ -56,6 +63,7 @@
     .match-card {
         color: var(--text-active);
         box-sizing: border-box;
+        flex: 0 0 auto;
         border: 4px solid var(--gray-600);
         border-radius: 10px;
         overflow: clip;
@@ -65,12 +73,21 @@
         width: 140px;
         box-shadow: 0 0 8px black;
         margin: 0 10px;
+        cursor: pointer;
     }
+
+    .match-card.selected {
+        border-color: var(--green-action);
+    }
+
     .card-header {
         background-color: var(--gray-600);
         font-weight: bold;
         padding: 2px 0.5em 4px 0.5em;
         box-shadow: 0 0px 8px black;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .match-details {
@@ -89,12 +106,17 @@
         width: 90%;
         padding: 0.2em;
         box-shadow: 0 0 8px black;
+        font-variant-numeric: tabular-nums;
+    }
+    .match-section.muted {
+        color: var(--text-inactive-dark);
+        font-size: 0.85em;
     }
     .match-section.alliance {
         background-color: var(--alliance-overlay-background);
     }
     .match-section.tie {
-        background-color: var(--auto-active);
+        background-color: var(--neutral-action);
     }
 
     .team-lists {
