@@ -368,6 +368,13 @@
         color: inherit;
         cursor: pointer;
         text-align: inherit;
+        border-radius: 6px;
+    }
+
+    /* Concealed scores sit on a shade of the alliance colour, so the card still
+       reads as that alliance's while the numbers are hidden */
+    .hide_rp {
+        background-color: var(--alliance-highlight);
     }
 
     .rp-summary {
@@ -420,6 +427,7 @@
         align-items: center;
         justify-content: center;
         font-weight: bold;
+        color: var(--text-active);
         pointer-events: none;
     }
     .hide_rp .rp-summary {
