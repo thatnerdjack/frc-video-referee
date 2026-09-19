@@ -659,22 +659,43 @@ class VARController:
     #########################################
 
     async def _handle_load_match_command(self, command: LoadMatchCommand):
-        """Handle a command to load a match for review."""
-        async with self._lock:
-            if (
-                self._state == ControllerState.Idle
-                or self._state == ControllerState.ReviewingHistoricalMatch
-            ):
-                if command.match_id not in self._matches:
-                    logger.error(f"Match {command.match_id} not found")
-                    return
+        """Handle a command to load a match for review.
 
-                self._current_match = self._matches[command.match_id]
-                self._state = ControllerState.ReviewingHistoricalMatch
-                clip_id = self._current_match.var_data.clip_id
-                if clip_id and self._hyperdeck.has_playable_clip(clip_id):
-                    await self._hyperdeck.warp_to_clip(clip_id, 0.0)
-                await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+        Allowed from every state except Recording, including the post-match review of
+        the match that was just recorded: the operator often wants to check something
+        in an earlier match before the scorekeeper commits.
+        """
+        async with self._lock:
+            if self._state == ControllerState.Recording:
+                logger.debug("Recording in progress, ignoring match load")
+                return
+
+            if command.match_id not in self._matches:
+                logger.error(f"Match {command.match_id} not found")
+                return
+
+            if (
+                self._current_match is not None
+                and self._current_match.var_data.var_id == command.match_id
+            ):
+                # Already open. Reloading it would drop the live scoring data that the
+                # post-match review shows for a match the arena has not committed yet.
+                logger.debug(f"Match {command.match_id} is already loaded")
+                return
+
+            # Persist whatever was open before switching away from it. The hyperdeck
+            # stays put, since the next step warps it to the newly selected clip.
+            await self._save_and_unload_current_match(update_hyperdeck=False)
+
+            logger.info(f"Loading match {command.match_id} for review")
+            self._current_match = self._matches[command.match_id]
+            self._set_state(ControllerState.ReviewingHistoricalMatch)
+            clip_id = self._current_match.var_data.clip_id
+            if clip_id and self._hyperdeck.has_playable_clip(clip_id):
+                await self._hyperdeck.warp_to_clip(clip_id, 0.0)
+            else:
+                await self._hyperdeck.show_live_view()
+            await self._websocket.notify(CONTROLLER_STATUS_EVENT)
 
     async def _handle_warp_to_time_command(self, command: WarpToTimeCommand):
         """Handle a command to warp the video player to a specific time."""
@@ -731,12 +752,22 @@ class VARController:
             )
 
     async def _handle_exit_review_command(self, _command: ExitReviewCommand):
-        """Handle a command to exit review mode and go to the live view."""
+        """Handle a command to exit review mode and go to the live view.
+
+        Allowed from either review state. Only an in-progress recording is protected,
+        since going live would abandon the match being captured.
+        """
         async with self._lock:
-            if self._state == ControllerState.ReviewingHistoricalMatch:
-                await self._save_and_unload_current_match()
-                self._set_state(ControllerState.Idle)
-                await self._websocket.notify(CONTROLLER_STATUS_EVENT)
+            if self._state == ControllerState.Recording:
+                logger.debug("Recording in progress, ignoring go live request")
+                return
+            if self._state == ControllerState.Idle:
+                return
+
+            logger.info("Exiting review, returning to the live view")
+            await self._save_and_unload_current_match()
+            self._set_state(ControllerState.Idle)
+            await self._websocket.notify(CONTROLLER_STATUS_EVENT)
 
     async def _handle_update_event_command(self, command: UpdateEventCommand):
         """Handle a command to update an existing event in a match."""

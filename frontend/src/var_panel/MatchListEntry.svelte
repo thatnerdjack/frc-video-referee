@@ -4,9 +4,11 @@
     interface Props {
         match: VARMatch;
         selected?: boolean;
+        /** Matches cannot be switched while one is being recorded */
+        disabled?: boolean;
         onclick?: (match: VARMatch) => void;
     }
-    let { match, selected = false, onclick }: Props = $props();
+    let { match, selected = false, disabled = false, onclick }: Props = $props();
 
     let result = $derived(match.arena_data?.result);
     let result_style_class = $derived.by(() => {
@@ -30,6 +32,8 @@
     class="match-card"
     class:selected
     type="button"
+    {disabled}
+    title={disabled ? "Not available while recording a match" : undefined}
     onclick={() => onclick?.(match)}
 >
     <div class="card-header">{match.var_data.var_id}</div>
@@ -78,6 +82,11 @@
 
     .match-card.selected {
         border-color: var(--green-action);
+    }
+
+    .match-card:disabled {
+        opacity: 0.5;
+        cursor: default;
     }
 
     .card-header {

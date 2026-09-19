@@ -130,6 +130,9 @@
       : server_state.hyperdeck_status.clip_time,
   );
 
+  /** The server refuses to switch matches or go live while a match is recording */
+  let recording = $derived(server_state.controller_status.recording);
+
   let current_shift = $derived(
     realtime_data ? shiftAtTime(effective_time, server_state.match_timing) : null,
   );
@@ -294,8 +297,12 @@
       </div>
 
       <div class="matches list-container">
-        <button class="panel-action go-live" type="button" onclick={exitReview}
-          >Go Live</button
+        <button
+          class="panel-action go-live"
+          type="button"
+          disabled={recording}
+          title={recording ? "Not available while recording a match" : undefined}
+          onclick={exitReview}>Go Live</button
         >
         <VerticalList
           data={sorted_matches}
@@ -307,6 +314,7 @@
               match={data}
               selected={data.var_data.var_id ===
                 server_state.controller_status.selected_match_id}
+              disabled={recording}
               onclick={loadMatch}
             />
           {/snippet}
