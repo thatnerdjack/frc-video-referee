@@ -33,6 +33,8 @@ button {
   align-items: normal;
   border: none;
   padding: 0;
+  /* Without this a button falls back to the browser's grey `buttonface` */
+  background-color: transparent;
 }
 
 button:hover:enabled {

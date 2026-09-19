@@ -78,9 +78,9 @@
 
 :root {
     /* Game-specific color scheme */
-    --coral: var(--gray-100);
-    --coral-auto: var(--auto-action);
-    --reef-pole: var(--purple-400);
+    --fuel: #ffc53d;
+    --fuel-auto: var(--auto-action);
+    --tower: var(--purple-300);
 }
 
 /* Specialize color scheme for the current alliance */

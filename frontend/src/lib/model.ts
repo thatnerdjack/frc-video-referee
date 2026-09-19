@@ -1,110 +1,204 @@
 /* Global settings for the frontend panels */
 
+/** Ranking points awarded for the outcome of a match */
+export interface MatchRankingPointSettings {
+    win: number;
+    tie: number;
+    loss: number;
+}
+
+/** Display and scoring configuration for one bonus ranking point */
+export interface BonusRankingPointSettings {
+    /** Whether this ranking point is in use at this event */
+    enabled: boolean;
+    /** Name shown for this ranking point in the panel */
+    label: string;
+    /** Value which must be reached to earn this ranking point */
+    threshold: number;
+    /** Ranking points awarded for earning this bonus */
+    value: number;
+}
+
 export interface UISettings {
     swap_red_blue: boolean;
-    reef_level_rp_threshold: number;
-    barge_rp_threshold: number;
+    match_rp: MatchRankingPointSettings;
+    energized_rp: BonusRankingPointSettings;
+    supercharged_rp: BonusRankingPointSettings;
+    traversal_rp: BonusRankingPointSettings;
 }
+
 export const DEFAULT_UI_SETTINGS: UISettings = {
     swap_red_blue: false,
-    reef_level_rp_threshold: 5,
-    barge_rp_threshold: 14,
+    match_rp: { win: 3, tie: 1, loss: 0 },
+    energized_rp: { enabled: true, label: 'Energized', threshold: 100, value: 1 },
+    supercharged_rp: { enabled: true, label: 'Supercharged', threshold: 360, value: 1 },
+    traversal_rp: { enabled: true, label: 'Traversal', threshold: 50, value: 1 },
 }
 
 /* Game-specific score model */
 
-export type ReefRow = [boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean];
-export type ReefBranches = [ReefRow, ReefRow, ReefRow]
-
-export interface Reef {
-    auto_branches: ReefBranches;
-    branches: ReefBranches;
-    auto_trough_near: number;
-    auto_trough_far: number;
-    trough_near: number;
-    trough_far: number;
+/** A distinct period during the match when Fuel is scored and tracked separately */
+export enum Shift {
+    AUTO = 0,
+    TRANSITION = 1,
+    SHIFT_1 = 2,
+    SHIFT_2 = 3,
+    SHIFT_3 = 4,
+    SHIFT_4 = 5,
+    ENDGAME = 6,
+    POST_MATCH = 7,
 }
 
-export const PLACEHOLDER_REEF: Reef = {
-    auto_branches: [
-        [false, false, false, false, false, false, false, false, false, false, false, false],
-        [false, false, false, false, false, false, false, false, false, false, false, false],
-        [false, false, false, false, false, false, false, false, false, false, false, false],
-    ],
-    branches: [
-        [false, false, false, false, false, false, false, false, false, false, false, false],
-        [false, false, false, false, false, false, false, false, false, false, false, false],
-        [false, false, false, false, false, false, false, false, false, false, false, false],
-    ],
-    auto_trough_near: 0,
-    auto_trough_far: 0,
-    trough_near: 0,
-    trough_far: 0,
+/** Number of distinct Fuel scoring shifts in a match */
+export const SHIFT_COUNT = 8;
+
+/** Shifts which make up the teleoperated period, in match order */
+export const TELEOP_SHIFTS: Shift[] = [
+    Shift.TRANSITION,
+    Shift.SHIFT_1,
+    Shift.SHIFT_2,
+    Shift.SHIFT_3,
+    Shift.SHIFT_4,
+    Shift.ENDGAME,
+];
+
+/** Fuel scoring data for an alliance's Hub */
+export interface Hub {
+    /** Whether this alliance won auto, which decides the shifts where its Hub is active */
+    won_auto: boolean;
+    /** Fuel scored during each shift, whether or not the Hub was active */
+    shift_counts: number[];
 }
+
+export const PLACEHOLDER_HUB: Hub = {
+    won_auto: false,
+    shift_counts: Array(SHIFT_COUNT).fill(0),
+}
+
+/** Climb status of a robot on the Tower */
+export enum TowerStatus {
+    NONE = 0,
+    LEVEL_1 = 1,
+    LEVEL_2 = 2,
+    LEVEL_3 = 3,
+}
+
+export type TowerStatuses = [TowerStatus, TowerStatus, TowerStatus];
 
 export interface Foul {
     is_major: boolean;
     team_id: number;
     rule_id: number;
-}
-
-export enum EndgameStatus {
-    NONE = 0,
-    PARKED = 1,
-    SHALLOW_CAGE = 2,
-    DEEP_CAGE = 3,
+    foul_id?: number | null;
 }
 
 export interface Score {
-    leave_statuses: [boolean, boolean, boolean];
-    reef: Reef;
-    barge_algae: number;
-    processor_algae: number;
-    endgame_statuses: [EndgameStatus, EndgameStatus, EndgameStatus];
+    /** Tower status for each robot at the end of the autonomous period */
+    auto_tower_statuses: TowerStatuses;
+    /** Fuel scoring data for the alliance's Hub */
+    hub: Hub;
+    /** Tower status for each robot at the end of the match */
+    endgame_tower_statuses: TowerStatuses;
+    /** Fouls committed by the alliance */
+    fouls?: Foul[] | null;
+    /** Whether the alliance was disqualified from a playoff match */
+    playoff_dq: boolean;
 }
 
 export const PLACEHOLDER_SCORE: Score = {
-    leave_statuses: [false, false, false],
-    reef: PLACEHOLDER_REEF,
-    barge_algae: 0,
-    processor_algae: 0,
-    endgame_statuses: [EndgameStatus.NONE, EndgameStatus.NONE, EndgameStatus.NONE],
+    auto_tower_statuses: [TowerStatus.NONE, TowerStatus.NONE, TowerStatus.NONE],
+    hub: PLACEHOLDER_HUB,
+    endgame_tower_statuses: [TowerStatus.NONE, TowerStatus.NONE, TowerStatus.NONE],
+    fouls: null,
+    playoff_dq: false,
 }
 
 export interface ScoreSummary {
-    score: number
-    match_points: number
-    barge_points: number
-    num_coral_levels: number;
-    num_coral_levels_goal: number;
-    auto_bonus_ranking_point: boolean;
-    coral_bonus_ranking_point: boolean;
-    barge_bonus_ranking_point: boolean;
+    /** Total score, including fouls awarded by the opponent */
+    score: number;
+    /** Points scored by the alliance itself, excluding fouls */
+    match_points: number;
+    /** Points scored from Fuel during the autonomous period */
+    auto_fuel_points: number;
+    /** Points scored on the Tower during the autonomous period */
+    auto_tower_points: number;
+    /** Points scored from Fuel during the teleoperated period */
+    teleop_fuel_points: number;
+    /** Points scored on the Tower at the end of the match */
+    teleop_tower_points: number;
+    /** Total Fuel scored while the alliance's Hub was active */
+    num_fuel: number;
+    /** Fuel scored during the grace period after the match */
+    num_fuel_post_match: number;
+    /** Fuel total needed for the alliance's next Fuel ranking point */
+    num_fuel_goal: number;
+    /** Points which are only determined once the match has ended */
+    post_match_points: number;
+    /** Points awarded to this alliance from fouls committed by its opponent */
+    foul_points: number;
+    /** Number of major fouls committed by the opposing alliance */
+    num_opponent_major_fouls: number;
+    /** Whether the alliance was disqualified from a playoff match */
+    playoff_dq: boolean;
+    energized_bonus_ranking_point: boolean;
+    supercharged_bonus_ranking_point: boolean;
+    traversal_bonus_ranking_point: boolean;
+    /** Bonus ranking points earned, as counted by the arena */
+    bonus_ranking_points: number;
 }
 
-export const PLACEHOLDER_SCORE_SUMMARY = {
+export const PLACEHOLDER_SCORE_SUMMARY: ScoreSummary = {
     score: 0,
     match_points: 0,
-    barge_points: 0,
-    num_coral_levels: 0,
-    num_coral_levels_goal: 0,
-    auto_bonus_ranking_point: false,
-    coral_bonus_ranking_point: false,
-    barge_bonus_ranking_point: false,
+    auto_fuel_points: 0,
+    auto_tower_points: 0,
+    teleop_fuel_points: 0,
+    teleop_tower_points: 0,
+    num_fuel: 0,
+    num_fuel_post_match: 0,
+    num_fuel_goal: 0,
+    post_match_points: 0,
+    foul_points: 0,
+    num_opponent_major_fouls: 0,
+    playoff_dq: false,
+    energized_bonus_ranking_point: false,
+    supercharged_bonus_ranking_point: false,
+    traversal_bonus_ranking_point: false,
+    bonus_ranking_points: 0,
 }
 
 export interface ScoreWithSummary {
     score: Score;
     score_summary: ScoreSummary;
+    /** Seconds left in the current shift while this alliance's Hub is active, otherwise zero */
+    active_remaining_sec: number;
+    /** Total duration of the current shift in seconds */
+    active_duration_sec: number;
 }
 
 export const PLACEHOLDER_SCORE_WITH_SUMMARY: ScoreWithSummary = {
     score: PLACEHOLDER_SCORE,
     score_summary: PLACEHOLDER_SCORE_SUMMARY,
+    active_remaining_sec: 0,
+    active_duration_sec: 0,
 }
 
 export interface Cards {
     [index: number]: string;
+}
+
+/* Evergreen arena status */
+
+/** Must stay in sync with the MatchState constants in Cheesy Arena's field package */
+export enum MatchState {
+    PRE_MATCH = 0,
+    START_MATCH = 1,
+    AUTO_PERIOD = 2,
+    PAUSE_PERIOD = 3,
+    TELEOP_PERIOD = 4,
+    POST_MATCH = 5,
+    TIMEOUT_ACTIVE = 6,
+    POST_TIMEOUT = 7,
 }
 
 export interface RealtimeScore {
@@ -112,6 +206,7 @@ export interface RealtimeScore {
     blue: ScoreWithSummary;
     red_cards: Cards;
     blue_cards: Cards;
+    match_state: MatchState;
 }
 
 export const PLACEHOLDER_REALTIME_SCORE: RealtimeScore = {
@@ -119,37 +214,27 @@ export const PLACEHOLDER_REALTIME_SCORE: RealtimeScore = {
     blue: PLACEHOLDER_SCORE_WITH_SUMMARY,
     red_cards: {},
     blue_cards: {},
-}
-
-/* Evergreen arena status */
-
-export enum MatchState {
-    PRE_MATCH = 0,
-    START_MATCH = 1,
-    WARMUP_PERIOD = 2,
-    AUTO_PERIOD = 3,
-    PAUSE_PERIOD = 4,
-    TELEOP_PERIOD = 5,
-    POST_MATCH = 6,
-    TIMEOUT_ACTIVE = 7,
-    POST_TIMEOUT = 8,
+    match_state: MatchState.PRE_MATCH,
 }
 
 export interface MatchTiming {
-    warmup_duration_sec: number;
     auto_duration_sec: number;
     pause_duration_sec: number;
-    teleop_duration_sec: number;
-    warning_remaining_duration_sec: number;
+    /** Duration of the transition shift at the start of teleop */
+    transition_shift_duration_sec: number;
+    /** Duration of each of the four contested shifts */
+    shift_duration_sec: number;
+    /** Duration of the endgame shift */
+    endgame_duration_sec: number;
     timeout_duration_sec: number;
 }
 
 export const DEFAULT_MATCH_TIMING: MatchTiming = {
-    warmup_duration_sec: 0,
-    auto_duration_sec: 15,
+    auto_duration_sec: 20,
     pause_duration_sec: 3,
-    teleop_duration_sec: 135,
-    warning_remaining_duration_sec: 20,
+    transition_shift_duration_sec: 10,
+    shift_duration_sec: 25,
+    endgame_duration_sec: 30,
     timeout_duration_sec: 0,
 }
 
@@ -293,6 +378,11 @@ export interface TeamTable {
     [index: string]: [number, number, number]; // team numbers for the alliance
 }
 
+export const PLACEHOLDER_TEAMS: TeamTable = {
+    [Alliance.RED]: [0, 0, 0],
+    [Alliance.BLUE]: [0, 0, 0],
+}
+
 export interface RecordedMatch {
     var_id: string;
     arena_id: number;
@@ -315,7 +405,7 @@ export interface VARMatchTable {
 }
 
 export interface ControllerStatus {
-    selected_match_id: number | null;
+    selected_match_id: string | null;
     recording: boolean;
     realtime_data: boolean;
 }
@@ -334,6 +424,7 @@ export enum WebsocketEventType {
     ControllerStatus = "controller_status",
     CurrentMatchData = "current_match_data",
     CurrentMatchTime = "current_match_time",
+    MatchTiming = "match_timing",
     RealtimeScore = "realtime_score",
     MatchList = "match_list",
     ArenaConnection = "arena_connection",

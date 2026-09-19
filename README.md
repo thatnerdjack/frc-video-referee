@@ -64,6 +64,51 @@ folder = "myevent.db" # Create a new DB folder for each event
 swap-red-blue = true # Swap red vs blue in the UI to match the VAR field view
 ```
 
+Keys may be written in either `kebab-case` (matching the command line arguments) or
+`snake_case` (matching the field names).
+
+### Ranking point configuration
+
+The panel shows each alliance's bonus ranking points and the ranking points it would
+earn if the match ended now. Off-season events often change these values, so they are
+configurable. Add only the values you are changing; anything you leave out keeps its
+default.
+
+```toml
+# Ranking points for the match result
+[ui.match-rp]
+win = 2   # Default 3
+tie = 1   # Default 1
+loss = 0  # Default 0
+
+# Each bonus ranking point can be renamed, re-thresholded, re-weighted, or turned off
+[ui.energized-rp]
+threshold = 80  # Fuel needed, default 100
+value = 1       # Ranking points awarded, default 1
+
+[ui.supercharged-rp]
+enabled = false # Hide this RP entirely, default true
+threshold = 360 # Fuel needed, default 360
+
+[ui.traversal-rp]
+label = "Climb" # Name shown in the panel, default "Traversal"
+threshold = 40  # Tower points needed, default 50
+value = 2       # Ranking points awarded, default 1
+```
+
+Any bonus ranking point can be switched off with `enabled = false`, including all of
+them at once. A disabled RP is hidden from the panel and left out of the projected RP
+total, and disabling both Fuel RPs also drops the Fuel goal readout, so the card shows
+"90 scored" rather than a target the event does not award. The win/tie/loss RP is
+always shown, since every match has an outcome.
+
+Set the thresholds to match the equivalent settings in Cheesy Arena, which computes
+whether each RP was actually earned. The panel always shows the arena's verdict as
+the check mark and uses the configured threshold only for the progress number beside
+it, so a threshold that does not match the arena's is visible rather than hidden. Note
+that the arena also withholds every bonus RP from an alliance penalized under G206, so
+a "met the threshold but no check mark" reading can be correct.
+
 ## Rebuilding after making local changes
 
 Changes to python code will automatically be used on the next `uv run frc-video-referee` invocation.

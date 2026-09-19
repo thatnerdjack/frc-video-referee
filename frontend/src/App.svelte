@@ -9,75 +9,63 @@
   import EventCard from "./var_panel/EventCard.svelte";
   import ScoreCards from "./var_panel/ScoreCards.svelte";
   import {
-    MatchStatus,
-    MatchType,
     PLACEHOLDER_MATCH,
     PLACEHOLDER_SCORE,
     PLACEHOLDER_SCORE_SUMMARY,
+    PLACEHOLDER_TEAMS,
     type MatchEvent,
     type TeamTable,
     type VARMatch,
   } from "./lib/model";
-    import { REASONS } from "./lib/reasons";
+  import { REASONS } from "./lib/reasons";
+  import { shiftAtTime } from "./lib/match_time";
 
   interface Props {
     ws: WebSocketClient;
-    selectedEventIdx?: number;
   }
 
-  let { ws, selectedEventIdx }: Props = $props();
+  let { ws }: Props = $props();
+
+  /** Event the operator has open in the detail card, tracked by id so that it
+   * survives the list being re-sorted when new events arrive */
+  let selected_event_id: string | null = $state(null);
 
   let current_match = $derived(
-    server_state.matches[
-      server_state.controller_status.selected_match_id ?? ""
-    ],
+    server_state.controller_status.selected_match_id
+      ? server_state.matches[server_state.controller_status.selected_match_id]
+      : undefined,
   );
   let realtime_data = $derived(server_state.controller_status.realtime_data);
+  let settings = $derived(server_state.ui_settings);
 
   let displayed_arena_match = $derived.by(() => {
     if (realtime_data) {
       return server_state.realtime_match;
-    } else {
-      if (current_match) {
-        return (
-          current_match.arena_data ?? {
-            id: current_match.var_data.arena_id,
-            match_type: MatchType.TEST,
-            type_order: 0,
-            long_name: current_match.var_data.var_id,
-            short_name: current_match.var_data.var_id,
-            red1: 0,
-            red2: 0,
-            red3: 0,
-            blue1: 0,
-            blue2: 0,
-            blue3: 0,
-            status: MatchStatus.SCHEDULED,
-          }
-        );
-      } else {
-        return PLACEHOLDER_MATCH;
-      }
     }
+    if (current_match?.arena_data) {
+      return current_match.arena_data;
+    }
+    if (current_match) {
+      // A recorded match whose arena entry is gone, e.g. the schedule was regenerated
+      return {
+        ...PLACEHOLDER_MATCH,
+        id: current_match.var_data.arena_id,
+        long_name: current_match.var_data.var_id,
+        short_name: current_match.var_data.var_id,
+      };
+    }
+    return PLACEHOLDER_MATCH;
   });
 
   let displayed_match_teams = $derived.by(() => {
     if (realtime_data) {
+      const match = server_state.realtime_match;
       return {
-        red: [
-          server_state.realtime_match.red1,
-          server_state.realtime_match.red2,
-          server_state.realtime_match.red3,
-        ],
-        blue: [
-          server_state.realtime_match.blue1,
-          server_state.realtime_match.blue2,
-          server_state.realtime_match.blue3,
-        ],
+        red: [match.red1, match.red2, match.red3],
+        blue: [match.blue1, match.blue2, match.blue3],
       } as TeamTable;
-    } else {
-      return current_match?.var_data.teams ?? { red: [0, 0, 0], blue: [0, 0, 0] };
     }
+    return current_match?.var_data.teams ?? PLACEHOLDER_TEAMS;
   });
 
   let { red_score, blue_score, red_score_summary, blue_score_summary } =
@@ -89,39 +77,52 @@
           red_score_summary: server_state.realtime_score.red.score_summary,
           blue_score_summary: server_state.realtime_score.blue.score_summary,
         };
-      } else {
-        return {
-          red_score:
-            current_match.arena_data?.result?.red_score ?? PLACEHOLDER_SCORE,
-          blue_score:
-            current_match.arena_data?.result?.blue_score ?? PLACEHOLDER_SCORE,
-          red_score_summary:
-            current_match.arena_data?.result?.red_summary ??
-            PLACEHOLDER_SCORE_SUMMARY,
-          blue_score_summary:
-            current_match.arena_data?.result?.blue_summary ??
-            PLACEHOLDER_SCORE_SUMMARY,
-        };
       }
+      const result = current_match?.arena_data?.result;
+      return {
+        red_score: result?.red_score ?? PLACEHOLDER_SCORE,
+        blue_score: result?.blue_score ?? PLACEHOLDER_SCORE,
+        red_score_summary: result?.red_summary ?? PLACEHOLDER_SCORE_SUMMARY,
+        blue_score_summary: result?.blue_summary ?? PLACEHOLDER_SCORE_SUMMARY,
+      };
     });
 
   let sorted_matches = $derived(
     Object.values(server_state.matches).sort((a, b) =>
-      a.var_data.match_start_timestamp < b.var_data.match_start_timestamp
-        ? 1
-        : b.var_data.match_start_timestamp < a.var_data.match_start_timestamp
-          ? -1
-          : 0,
+      b.var_data.match_start_timestamp.localeCompare(
+        a.var_data.match_start_timestamp,
+      ),
     ),
   );
 
-  let event_list = $derived(current_match?.var_data.events ?? []);
-  let sorted_events = $derived(
-    Array.from(event_list).sort((a, b) => a.time - b.time),
-  );
   let sorted_events_with_idx = $derived(
-    sorted_events.map((event, idx) => ({ event_idx: idx + 1, event })),
+    Array.from(current_match?.var_data.events ?? [])
+      .sort((a, b) => a.time - b.time)
+      .map((event, idx) => ({ event_idx: idx + 1, event })),
   );
+  /** Newest first for the side list, without disturbing the timeline ordering */
+  let listed_events = $derived([...sorted_events_with_idx].reverse());
+
+  let selected_event = $derived(
+    sorted_events_with_idx.find((e) => e.event.event_id === selected_event_id),
+  );
+
+  // Drop a selection that no longer exists, e.g. after switching matches or
+  // deleting the event that was open.
+  $effect(() => {
+    if (selected_event_id !== null && selected_event === undefined) {
+      selected_event_id = null;
+    }
+  });
+
+  /** Container for the event detail card, scrolled into view when a new event is picked */
+  let event_card_container: HTMLDivElement | undefined = $state();
+
+  $effect(() => {
+    if (selected_event_id !== null) {
+      event_card_container?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  });
 
   let effective_time = $derived(
     server_state.controller_status.recording
@@ -129,54 +130,72 @@
       : server_state.hyperdeck_status.clip_time,
   );
 
+  /** The server refuses to switch matches or go live while a match is recording */
+  let recording = $derived(server_state.controller_status.recording);
+
+  let current_shift = $derived(
+    realtime_data ? shiftAtTime(effective_time, server_state.match_timing) : null,
+  );
+
   function loadMatch(match: VARMatch) {
     ws.sendCommand("load_match", { match_id: match.var_data.var_id });
   }
-  function warpToEvent(event: MatchEvent) {
-    if (current_match) {
-      ws.sendCommand("warp_to_time", {
-        match_id: current_match.var_data.var_id,
-        time: event.time,
-      });
 
-      // TODO: This is kinda hot garbage, but it works for now
-      selectedEventIdx = sorted_events_with_idx.find(
-        (e) => e.event.event_id === event.event_id,
-      )?.event_idx;
+  function warpToEvent(event: MatchEvent) {
+    if (!current_match) {
+      return;
     }
+    ws.sendCommand("warp_to_time", {
+      match_id: current_match.var_data.var_id,
+      time: event.time,
+    });
+    selected_event_id = event.event_id;
   }
+
   function warpToTime(time: number) {
-    if (current_match) {
-      ws.sendCommand("warp_to_time", {
-        match_id: current_match.var_data.var_id,
-        time: time,
-      });
+    if (!current_match) {
+      return;
     }
+    ws.sendCommand("warp_to_time", {
+      match_id: current_match.var_data.var_id,
+      time: time,
+    });
   }
+
   function addVARReview() {
-    if (current_match) {
-      ws.sendCommand("add_var_review", {
-        match_id: current_match.var_data.var_id,
-        time: effective_time,
-      });
+    if (!current_match) {
+      return;
     }
+    ws.sendCommand("add_var_review", {
+      match_id: current_match.var_data.var_id,
+      time: effective_time,
+    });
   }
+
   function exitReview() {
     ws.sendCommand("exit_review", {});
   }
 
   function updateEvent(eventUpdates: Partial<MatchEvent>) {
-    if (current_match && selectedEventIdx !== undefined) {
-      const eventToUpdate = sorted_events_with_idx.find(e => e.event_idx === selectedEventIdx)?.event;
-      if (eventToUpdate) {
-        // Send update command to the server
-        ws.sendCommand("update_event", {
-          match_id: current_match.var_data.var_id,
-          event_id: eventToUpdate.event_id,
-          updates: eventUpdates
-        });
-      }
+    if (!current_match || !selected_event) {
+      return;
     }
+    ws.sendCommand("update_event", {
+      match_id: current_match.var_data.var_id,
+      event_id: selected_event.event.event_id,
+      updates: eventUpdates,
+    });
+  }
+
+  function deleteEvent() {
+    if (!current_match || !selected_event) {
+      return;
+    }
+    ws.sendCommand("delete_event", {
+      match_id: current_match.var_data.var_id,
+      event_id: selected_event.event.event_id,
+    });
+    selected_event_id = null;
   }
 </script>
 
@@ -193,7 +212,7 @@
 
   <main>
     <div class="match-ui-container">
-      <div class="scoring-container">
+      <div class="match-scroll-area">
         <ScoreCards
           hide_scores={realtime_data}
           {red_score}
@@ -201,26 +220,45 @@
           {red_score_summary}
           {blue_score_summary}
           teams={displayed_match_teams}
-          swap={server_state.ui_settings.swap_red_blue}
-          reef_level_rp_threshold={server_state.ui_settings
-            .reef_level_rp_threshold}
-          barge_rp_threshold={server_state.ui_settings.barge_rp_threshold}
+          {settings}
+          {current_shift}
         />
-      </div>
-      <div class="flex-spacer" style="flex: 1 1 0%"></div>
-      <div class="event-info-container">
-        {#if selectedEventIdx !== undefined}
+
+        <div class="event-info-container" bind:this={event_card_container}>
+        {#if selected_event}
           <EventCard
             reasons={REASONS}
-            redTeams={[displayed_arena_match.red1, displayed_arena_match.red2, displayed_arena_match.red3]}
-            blueTeams={[displayed_arena_match.blue1, displayed_arena_match.blue2, displayed_arena_match.blue3]}
-            eventIdx={selectedEventIdx}
-            event={sorted_events_with_idx.find(e => e.event_idx === selectedEventIdx)?.event}
+            redTeams={[
+              displayed_arena_match.red1,
+              displayed_arena_match.red2,
+              displayed_arena_match.red3,
+            ]}
+            blueTeams={[
+              displayed_arena_match.blue1,
+              displayed_arena_match.blue2,
+              displayed_arena_match.blue3,
+            ]}
+            eventIdx={selected_event.event_idx}
+            event={selected_event.event}
             match_timing={server_state.match_timing}
+            swap={settings.swap_red_blue}
             onUpdateEvent={updateEvent}
+            onDeleteEvent={deleteEvent}
           />
-        {/if}
+          {:else}
+            <div class="event-placeholder">
+              {#if sorted_events_with_idx.length > 0}
+                Select an event to review it
+              {:else if current_match}
+                No review events for this match
+              {:else}
+                No match loaded
+              {/if}
+            </div>
+          {/if}
+        </div>
       </div>
+
       <div class="timeline-container">
         <Timeline
           events={sorted_events_with_idx}
@@ -231,33 +269,57 @@
         />
       </div>
     </div>
-    <div class="events list-container">
-      <button class="add-event" onclick={addVARReview}>Add VAR Review</button>
-      <VerticalList
-        data={sorted_events_with_idx.reverse()}
-        key_func={(event) => event.event.event_id}
-      >
-        {#snippet item(data)}
-          <EventListEntry
-            event_idx={data.event_idx}
-            event={data.event}
-            match={current_match}
-            match_timing={server_state.match_timing}
-            onclick={warpToEvent}
-          />
-        {/snippet}
-      </VerticalList>
-    </div>
-    <div class="matches list-container">
-      <button class="go-live" onclick={exitReview}>Go Live</button>
-      <VerticalList
-        data={sorted_matches}
-        key_func={(match) => match.var_data.var_id}
-      >
-        {#snippet item(data)}
-          <MatchListEntry match={data} onclick={loadMatch} />
-        {/snippet}
-      </VerticalList>
+
+    <div class="side-panels">
+      <div class="events list-container">
+        <button
+          class="panel-action add-event"
+          type="button"
+          disabled={!current_match}
+          onclick={addVARReview}>Add VAR Review</button
+        >
+        <VerticalList
+          data={listed_events}
+          key_func={(event) => event.event.event_id}
+          empty_message="No events"
+        >
+          {#snippet item(data)}
+            <EventListEntry
+              event_idx={data.event_idx}
+              event={data.event}
+              teams={displayed_match_teams}
+              match_timing={server_state.match_timing}
+              selected={data.event.event_id === selected_event_id}
+              onclick={warpToEvent}
+            />
+          {/snippet}
+        </VerticalList>
+      </div>
+
+      <div class="matches list-container">
+        <button
+          class="panel-action go-live"
+          type="button"
+          disabled={recording}
+          title={recording ? "Not available while recording a match" : undefined}
+          onclick={exitReview}>Go Live</button
+        >
+        <VerticalList
+          data={sorted_matches}
+          key_func={(match) => match.var_data.var_id}
+          empty_message="No recorded matches"
+        >
+          {#snippet item(data)}
+            <MatchListEntry
+              match={data}
+              selected={data.var_data.var_id ===
+                server_state.controller_status.selected_match_id}
+              disabled={recording}
+              onclick={loadMatch}
+            />
+          {/snippet}
+        </VerticalList>
+      </div>
     </div>
   </main>
 </div>
@@ -284,16 +346,19 @@
     height: 100%;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
 
   main {
+    flex: 1 1 0%;
+    min-height: 0;
     display: flex;
     flex-direction: row;
-    justify-content: space-between;
+    align-items: stretch;
     width: 100%;
-    height: 100%;
     overflow: hidden;
-    padding-bottom: 20px; /* Spacer for the iOS home bar */
+    /* Spacer for the iOS home bar */
+    padding-bottom: env(safe-area-inset-bottom, 20px);
 
     background:
       radial-gradient(rgba(0, 0, 0, 0.5) 15%, transparent 16%) 0 0,
@@ -306,37 +371,91 @@
 
   .match-ui-container {
     flex: 1 1 0%;
+    min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
   }
 
-  .scoring-container {
-    width: 100%;
-  }
-
-  .timeline-container {
-    padding: 0 20px;
-  }
-
-  .event-info-container {
-    margin: 10px;
+  /* The match detail column never scrolls: the scores, the selected event and the
+     timeline all have to be on screen at once during a review */
+  .match-scroll-area {
+    flex: 1 1 0%;
+    min-height: 0;
     display: flex;
-    justify-content: center;
-  }
-
-  .list-container {
-    height: 100%;
+    flex-direction: column;
     overflow: hidden;
   }
 
-  button {
+  .timeline-container {
+    flex: 0 0 auto;
+    padding: 10px 20px;
+  }
+
+  @media (max-height: 650px) {
+    .timeline-container {
+      padding: 4px 20px 6px 20px;
+    }
+
+    .event-info-container {
+      margin: 4px 10px;
+    }
+  }
+
+  /* Takes the space left over by the score cards so the field map is as large as
+     the display allows, instead of leaving a gap above the timeline */
+  /* Takes the space left over by the score cards so the field map is as large as
+     the display allows, instead of leaving a gap above the timeline. Short displays
+     drop the field map (see EventCard) so the card still fits at its natural size. */
+  .event-info-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .event-placeholder {
+    align-self: center;
+    color: var(--text-inactive-dark);
+    padding: 1.5em;
+    font-style: italic;
+  }
+
+  .side-panels {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    min-height: 0;
+  }
+
+  .list-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    padding: 0 6px;
+  }
+
+  .panel-action {
+    flex: 0 0 auto;
     background-color: var(--gray-600);
     color: var(--text-active-dark);
     border-radius: 8px;
     font-weight: bold;
     margin-top: 10px;
-    height: 4em;
+    min-height: 3.5em;
+    padding: 0 0.5em;
     box-shadow: 0 0 12px black;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
 
     &.add-event {
       background-color: var(--blue-200);
@@ -345,7 +464,52 @@
 
     &.go-live {
       background-color: var(--red-400);
+      color: var(--text-active);
       width: 140px;
+    }
+  }
+
+  /* Tablets in portrait, and small laptop windows: move the lists under the main
+     column and scroll them sideways instead of squeezing the score cards. */
+  @media (max-width: 1000px) {
+    main {
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .match-ui-container {
+      flex: 0 0 auto;
+    }
+
+    .match-scroll-area {
+      flex: 0 0 auto;
+      overflow: visible;
+    }
+
+    .event-info-container {
+      flex: 0 0 auto;
+      overflow: visible;
+    }
+
+    .side-panels {
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .list-container {
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+      height: auto;
+
+      --list-direction: row;
+      --list-overflow-x: auto;
+      --list-overflow-y: hidden;
+    }
+
+    .panel-action {
+      margin-top: 0;
+      min-height: 4em;
     }
   }
 </style>

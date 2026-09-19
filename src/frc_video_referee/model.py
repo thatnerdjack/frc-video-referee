@@ -42,3 +42,12 @@ class UpdateEventCommand(BaseModel):
     """Unique identifier for the event to update"""
     updates: Dict[str, Any]
     """Dictionary of field updates to apply to the event"""
+
+
+class DeleteEventCommand(BaseModel):
+    """Command to delete an event from a match"""
+
+    match_id: str
+    """Identifier for the match containing the event"""
+    event_id: str
+    """Unique identifier for the event to delete"""

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, TypeVar
 from pydantic import BaseModel, ValidationError
 
+from frc_video_referee.settings import SettingsModel
 from frc_video_referee.db.model import ArenaClientState, RecordedMatch
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 Model = TypeVar("Model", bound=BaseModel)
 
 
-class DBSettings(BaseModel):
+class DBSettings(SettingsModel):
     """Settings for the match database"""
 
     folder: Path = Path("var.db")
