@@ -126,7 +126,7 @@
   let effective_time = $derived(
     server_state.controller_status.recording
       ? server_state.match_time.match_time_sec
-      : server_state.hyperdeck_status.clip_time,
+      : server_state.hyperdeck_status.match_time,
   );
 
   function loadMatch(match: VARMatch) {

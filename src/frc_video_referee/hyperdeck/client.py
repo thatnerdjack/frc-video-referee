@@ -211,7 +211,11 @@ class HyperdeckClient:
             await self._notify(HyperdeckNotifier.CLIP_LIST_UPDATED)
 
     async def start_recording(self, clip_name: str | None = None) -> None:
-        """Start recording a new clip and return the ID in the HyperDeck"""
+        """Start recording a new clip.
+
+        The HyperDeck does not report the ID of the new clip until the recording has been
+        stopped and the clip has been finalized, so no ID is returned here.
+        """
         request = RecordRequest(clipName=clip_name)
         response = await self._client.post(
             "/transports/0/record",
@@ -221,8 +225,18 @@ class HyperdeckClient:
 
         logger.info(f"Started recording clip: {clip_name}")
 
+    async def discard_recording(self) -> None:
+        """Stop the current recording without waiting for its clip to be finalized.
+
+        Used for recordings whose contents are not needed, such as pre-roll segments which
+        are restarted while waiting for a match to start.
+        """
+        response = await self._client.post("/transports/0/stop")
+        response.raise_for_status()
+        logger.debug("Stopped recording without waiting for finalization")
+
     async def stop_recording(self) -> int:
-        """Stop the current recording."""
+        """Stop the current recording and return the ID of the finalized clip."""
         response = await self._client.post("/transports/0/stop")
         response.raise_for_status()
         logger.info("Stopped recording")

@@ -49,7 +49,7 @@ export const server_state: ServerState = $state({
     hyperdeck_status: {
         transport_mode: HyperdeckTransportMode.InputPreview,
         playing: false,
-        clip_time: 0,
+        match_time: 0,
         remaining_record_time: 0,
         total_space: 1,
         remaining_space: 0,

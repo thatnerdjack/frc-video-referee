@@ -60,6 +60,8 @@ class ArenaNotifier(enum.Enum):
     # Match lifecycle notifications to drive the video capture state machine
     ARENA_READY_TO_START = enum.auto()
     """Notification that the arena is ready to start the match"""
+    ARENA_NOT_READY_TO_START = enum.auto()
+    """Notification that the arena is no longer ready to start the match"""
     MATCH_STARTED = enum.auto()
     """Notification that a match has started"""
     AUTO_PERIOD_ENDED = enum.auto()
@@ -240,6 +242,9 @@ class CheesyArenaClient:
                     await self._handle_cheesy_message(message)
             finally:
                 self._connected = False
+                # Forget the last known readiness so that a fresh notification is
+                # emitted once the arena reports its status again after reconnecting
+                self.arena_status = PLACEHOLDER_ARENA_STATUS_MESSAGE
                 logger.info("Cheesy Arena connection closed")
                 await self._notify(ArenaNotifier.CONNECTION_STATE_UPDATED)
 
@@ -389,6 +394,10 @@ class CheesyArenaClient:
         prev_arena_status = self.arena_status
         self.arena_status = message
 
-        if self.arena_status.can_start_match and not prev_arena_status.can_start_match:
-            logger.info("Ready to start match")
-            await self._notify(ArenaNotifier.ARENA_READY_TO_START)
+        if self.arena_status.can_start_match != prev_arena_status.can_start_match:
+            if self.arena_status.can_start_match:
+                logger.info("Ready to start match")
+                await self._notify(ArenaNotifier.ARENA_READY_TO_START)
+            else:
+                logger.info("No longer ready to start match")
+                await self._notify(ArenaNotifier.ARENA_NOT_READY_TO_START)

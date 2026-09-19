@@ -30,8 +30,8 @@ class HyperdeckStatus(BaseModel):
     """Status of the hyperdeck's output"""
     playing: bool
     """Indicates if the hyperdeck is currently playing a clip"""
-    clip_time: float
-    """Current time position in the clip, in seconds"""
+    match_time: float
+    """Current playback position, in seconds relative to the start of the match"""
     remaining_record_time: int
     """Remaining record time on the HyperDeck in seconds"""
     total_space: int
